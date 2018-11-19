@@ -216,7 +216,7 @@ def bracket_interval(A, lower, upper, start=None, inclusive=None, allow_endpoint
 
 
 # dx and fixed_x define the control points. do they also define our desired output data?
-def interpolate_smoothly(X, Y, dx=None, fixed_x=None, window_size=None, fit_window=None, poly_order=None, expand_over_gap=None, min_control_point_spacing=None, return_cubic_spline=None):
+def interpolate_smoothly(X, Y, dx=None, fixed_x=None, window_size=None, fit_window=None, poly_order=None, expand_over_gap=None, min_control_point_spacing=None, return_cubic_spline=None, fast=False):
     XI = np.argsort(X)
     #print "sorting table:",XI
     #print "len = ",len(XI)
@@ -253,140 +253,148 @@ def interpolate_smoothly(X, Y, dx=None, fixed_x=None, window_size=None, fit_wind
     if return_cubic_spline is None:
         return_cubic_spline = False
     
-    # Pick a set of control points
-    control_points = values_at_interval(X, dx, fixed_x)
-    fit_domains = [(x-window_size/2.0,x+window_size/2.0) for x in control_points]
-    lost_control_points = [] # starts empty. may end up being unused
-    fit_sets_X = []
-    fit_sets_Y = []
-    fit_sets_W = []
-    exact_cs_points = set() # put points we wish to include in cubic spline explicitly
-    xy_points_fitted = set()
-    
-    #print "Chose control points and fit domains:",zip(control_points,fit_domains)
-    
-    # speed up bracket_interval by keeping track of approximate operating position within data array
-    rough_data_index = 0
-    
-    # do it in reversed order so we can remove points from control_points if we can't use them.
-    for i in reversed(range(len(control_points))):
-        #print ""
-        #print "control_points[",i,"] = ",control_points[i]
-                      
-        # need a try block here if control point could possibly be outside the range of X
-        # count data points covered by window
-        #print "Fit domain is",(fit_domains[i][0], fit_domains[i][1])
-        (a,b) = bracket_interval(X, fit_domains[i][0], fit_domains[i][1], start=rough_data_index, inclusive=False, allow_all=True)
-        points = b-a+1
-        #print "Bracket interval is",(a,b),"; points=",points
-                      
-        # if not enough:
-        if poly_order >= points:
-            # expand_over_gap is now misnamed. this might become default behavior with no need for
-            # a variable name
-            if expand_over_gap:
-                
-                # expand window to get enough control points
-                # We need a sane way to symmetrically (except near endpoints) expand the window until we have
-                # enough data to perform the fit.
-                #
-                # Here's a possible strategy:
-                # Call bracket_interval() again, but with inclusive=True. That will get us at least one more index,
-                # but we can allow_all so nothing overflows an endpoint. Since we want to expand symmetrically,
-                # take the largest distance from control_points[i] as half_interval, and call bracket_interval()
-                # yet again with inclusive=False and a=control_points[i]-half_interval,
-                # b=control_points[i]+half_interval and allow_all=True. Repeat until poly_order +1 > points.
-                #
-                #
-                # Include data points explicitly. Duplicates will be removed later.
-                #print "not enough points to fit"
-                for x,y in zip(X[a:b+1],Y[a:b+1]):
-                    exact_cs_points.add( (x,y) )
-                    #print "Adding to exact_cs_points: ", (x,y)
-                #print "Deleting control point",control_points[i]
-                lost_control_points += [control_points[i]]
-                del(control_points[i])
-                
-                # It would be nice to mark points we have already used for fitting and not use them in 
-                # exact_cs_points
-                continue
-            else:
-                print "Not enough points to fit. Don't use expand_over_gap=False"
-                # add to lost_control_points and skip the rest of the loop. Can we actually do anything
-                # with the lost control points? There are gaps in the data here. Might have to discard.
-                lost_control_points += [control_points[i]]
-                del(control_points[i])
-                continue
-        # Add subarray on interval (a,b) (inclusive) to lists of x and y arrays for fitting.
-        #print "adding to fit set:",(X[a:b+1]-control_points[i],Y[a:b+1],fit_window((X[a:b+1]-control_points[i])/(fit_domains[i][1]- fit_domains[i][0])))
-        fit_sets_X.append(X[a:b+1]-control_points[i])
-        fit_sets_Y.append(Y[a:b+1])
-        fit_sets_W.append(fit_window((X[a:b+1]-control_points[i])/(fit_domains[i][1]- fit_domains[i][0])))
-        #print "Computing fit window:"
-        #print "X[a:b+1]-control_points[i]=",X[a:b+1]-control_points[i]
-        #print "(fit_domains[i][1]- fit_domains[i][0])=",(fit_domains[i][1]- fit_domains[i][0])
-        
-        # now add the data points we include in the fit into the set xy_points_fitted:
-        for xy in zip(X[a:b+1],Y[a:b+1]):
-            xy_points_fitted.add(xy)
-        #print "xy_points_fitted now contains:",xy_points_fitted
-            
-    #print ""
-    #print "Do the fitting."
-    
-    #print "control_points=",control_points
-    
-    csx = reversed(control_points)
-    csy = []
-    for x,fitX,fitY,fitW in zip(reversed(control_points),fit_sets_X,fit_sets_Y,fit_sets_W):
-        #print "Fit point:",x
-        #print "X:",fitX,"Y:",fitY,"W:",fitW
-        
-        # currently not using this bit of kludge code
-        if False:
-            # if we need an exact solution, force the fitter to find it by adding an irrelevant point to the fit.
-            if poly_order == len(fitX):
-                fitX = np.append(fitX, 0.0)
-                fitY = np.append(fitY, sum(fitY)/float(len(fitY)) )
-                fitW = np.append(fitW, min(fitW)*1e-6)
-                #print "Adjusted fit vectors for an exact solution: fitX=",fitX,"fitY=",fitY,"fitW=",fitW
-            
-        # do the weighted poly fit on its domain
-        p=np.polyfit(fitX, fitY, 1, w=fitW)
-        csy.append(np.polyval(p,0.0))
-        # add to list of cubic splines
-        #print "  result:",np.polyval(p,0.0)
+    # fast mode for preview
+    if fast:
+      csx = list(X)
+      csy = list(Y)
 
-    # build the control point arrays
-    csx = control_points
-    csy = list(reversed(csy))
-    
-    # zip lists so we can check for duplicates
-    cs = zip(csx,csy)
-        
-    #print "exact_cs_points=",exact_cs_points
-    #print "xy_points_fitted=",xy_points_fitted
-    #print "set(cs)=",set(cs)
-    
-    # For the purposes of excluding fitted points from being used as exact_cs_points, explicit endpoints
-    # are always allowed if the fit failed there.
-    xy_points_fitted.discard( (X[0],Y[0]) )
-    xy_points_fitted.discard( (X[-1],Y[-1]) )
+    # main routine for real data
+    else:
+      # Pick a set of control points
+      control_points = values_at_interval(X, dx, fixed_x)
+      fit_domains = [(x-window_size/2.0,x+window_size/2.0) for x in control_points]
+      lost_control_points = [] # starts empty. may end up being unused
+      fit_sets_X = []
+      fit_sets_Y = []
+      fit_sets_W = []
+      exact_cs_points = set() # put points we wish to include in cubic spline explicitly
+      xy_points_fitted = set()
+      
+      #print "Chose control points and fit domains:",zip(control_points,fit_domains)
+      
+      # speed up bracket_interval by keeping track of approximate operating position within data array
+      rough_data_index = 0
+      
+      # do it in reversed order so we can remove points from control_points if we can't use them.
+      for i in reversed(range(len(control_points))):
+          #print ""
+          #print "control_points[",i,"] = ",control_points[i]
+                        
+          # need a try block here if control point could possibly be outside the range of X
+          # count data points covered by window
+          #print "Fit domain is",(fit_domains[i][0], fit_domains[i][1])
+          (a,b) = bracket_interval(X, fit_domains[i][0], fit_domains[i][1], start=rough_data_index, inclusive=False, allow_all=True)
+          points = b-a+1
+          #print "Bracket interval is",(a,b),"; points=",points
+                        
+          # if not enough:
+          if poly_order >= points:
+              # expand_over_gap is now misnamed. this might become default behavior with no need for
+              # a variable name
+              if expand_over_gap:
+                  
+                  # expand window to get enough control points
+                  # We need a sane way to symmetrically (except near endpoints) expand the window until we have
+                  # enough data to perform the fit.
+                  #
+                  # Here's a possible strategy:
+                  # Call bracket_interval() again, but with inclusive=True. That will get us at least one more index,
+                  # but we can allow_all so nothing overflows an endpoint. Since we want to expand symmetrically,
+                  # take the largest distance from control_points[i] as half_interval, and call bracket_interval()
+                  # yet again with inclusive=False and a=control_points[i]-half_interval,
+                  # b=control_points[i]+half_interval and allow_all=True. Repeat until poly_order +1 > points.
+                  #
+                  #
+                  # Include data points explicitly. Duplicates will be removed later.
+                  #print "not enough points to fit"
+                  for x,y in zip(X[a:b+1],Y[a:b+1]):
+                      exact_cs_points.add( (x,y) )
+                      #print "Adding to exact_cs_points: ", (x,y)
+                  #print "Deleting control point",control_points[i]
+                  lost_control_points += [control_points[i]]
+                  del(control_points[i])
+                  
+                  # It would be nice to mark points we have already used for fitting and not use them in 
+                  # exact_cs_points
+                  continue
+              else:
+                  print "Not enough points to fit. Don't use expand_over_gap=False"
+                  # add to lost_control_points and skip the rest of the loop. Can we actually do anything
+                  # with the lost control points? There are gaps in the data here. Might have to discard.
+                  lost_control_points += [control_points[i]]
+                  del(control_points[i])
+                  continue
+          # Add subarray on interval (a,b) (inclusive) to lists of x and y arrays for fitting.
+          #print "adding to fit set:",(X[a:b+1]-control_points[i],Y[a:b+1],fit_window((X[a:b+1]-control_points[i])/(fit_domains[i][1]- fit_domains[i][0])))
+          fit_sets_X.append(X[a:b+1]-control_points[i])
+          fit_sets_Y.append(Y[a:b+1])
+          fit_sets_W.append(fit_window((X[a:b+1]-control_points[i])/(fit_domains[i][1]- fit_domains[i][0])))
+          #print "Computing fit window:"
+          #print "X[a:b+1]-control_points[i]=",X[a:b+1]-control_points[i]
+          #print "(fit_domains[i][1]- fit_domains[i][0])=",(fit_domains[i][1]- fit_domains[i][0])
+          
+          # now add the data points we include in the fit into the set xy_points_fitted:
+          for xy in zip(X[a:b+1],Y[a:b+1]):
+              xy_points_fitted.add(xy)
+          #print "xy_points_fitted now contains:",xy_points_fitted
+              
+      #print ""
+      #print "Do the fitting."
+      
+      #print "control_points=",control_points
+      
+      csx = reversed(control_points)
+      csy = []
+      for x,fitX,fitY,fitW in zip(reversed(control_points),fit_sets_X,fit_sets_Y,fit_sets_W):
+          #print "Fit point:",x
+          #print "X:",fitX,"Y:",fitY,"W:",fitW
+          
+          # currently not using this bit of kludge code
+          if False:
+              # if we need an exact solution, force the fitter to find it by adding an irrelevant point to the fit.
+              if poly_order == len(fitX):
+                  fitX = np.append(fitX, 0.0)
+                  fitY = np.append(fitY, sum(fitY)/float(len(fitY)) )
+                  fitW = np.append(fitW, min(fitW)*1e-6)
+                  #print "Adjusted fit vectors for an exact solution: fitX=",fitX,"fitY=",fitY,"fitW=",fitW
+              
+          # do the weighted poly fit on its domain
+          p=np.polyfit(fitX, fitY, 1, w=fitW)
+          csy.append(np.polyval(p,0.0))
+          # add to list of cubic splines
+          #print "  result:",np.polyval(p,0.0)
 
-        
-    # Include exact spline handles (except for those that have been used as fit points). Remove 
-    # duplicate entries by converting to a set, then unzipping. Note that zip(*x) is inverse of zip.
-    points =  zip(*list(set(cs).union(exact_cs_points-xy_points_fitted)))
-    #print "Duplicates removed. zip(exact_cs_points)=",points
-    
-    csx = list(points[0])
-    csy = list(points[1])
+      # build the control point arrays
+      csx = control_points
+      csy = list(reversed(csy))
+      
+      # zip lists so we can check for duplicates
+      cs = zip(csx,csy)
+          
+      #print "exact_cs_points=",exact_cs_points
+      #print "xy_points_fitted=",xy_points_fitted
+      #print "set(cs)=",set(cs)
+      
+      # For the purposes of excluding fitted points from being used as exact_cs_points, explicit endpoints
+      # are always allowed if the fit failed there.
+      xy_points_fitted.discard( (X[0],Y[0]) )
+      xy_points_fitted.discard( (X[-1],Y[-1]) )
 
-    # we now have points out of order, so sort
-    csxi = np.argsort(csx)
-    csx = shuffle_list(csx,csxi)
-    csy = shuffle_list(csy,csxi)
+          
+      # Include exact spline handles (except for those that have been used as fit points). Remove 
+      # duplicate entries by converting to a set, then unzipping. Note that zip(*x) is inverse of zip.
+      points =  zip(*list(set(cs).union(exact_cs_points-xy_points_fitted)))
+      #print "Duplicates removed. zip(exact_cs_points)=",points
+      
+      csx = list(points[0])
+      csy = list(points[1])
 
+      # we now have points out of order, so sort
+      csxi = np.argsort(csx)
+      csx = shuffle_list(csx,csxi)
+      csy = shuffle_list(csy,csxi)
+
+    # fast mode and high quality mode rejoin here
     if min_control_point_spacing > 0.0:
         # Ideal method:
         # find spacings between each pair of control points

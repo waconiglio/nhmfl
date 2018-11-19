@@ -150,6 +150,10 @@ class NHMFL_DC_Data:
             # drop the file number from column names
             self.df = self.df.rename(columns=lambda x: re.match('^(.*)_\d{3}',x).groups()[0])
             self.df['Datetime'] = pd.Series(pd.to_datetime(self.end_time) + pd.to_timedelta(self.df['Timestamp'].values - self.df['Timestamp'].values[-1], unit='s'))
+
+    # shortcut to the numpy array of a data field
+    def __getitem__(self, x):
+      return self.df[x].values
     
     def clean_field(self,smoothing_time=5.0,remove_stairsteps=True,ensure_monotonic=False):
       time = self.df['Timestamp']
