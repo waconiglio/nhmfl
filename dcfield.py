@@ -169,8 +169,8 @@ class NHMFL_DC_Data:
 
       # Cleaning can result in loss of points at the start or end of dataset. Truncate
       # the dataframe to remove these points.
-      tmin = min(time[1:-1])
-      tmax = max(time[1:-1])
+      tmin = min(time[1:-2])
+      tmax = max(time[1:-2])
       imin,imax = interpolation.bracket_interval(self.df['Timestamp'].values,tmin,tmax)
       self.df = self.df.truncate(before=imin,after=imax)
 
