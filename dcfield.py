@@ -156,8 +156,13 @@ class NHMFL_DC_Data:
       return self.df[x].values
     
     def clean_field(self,smoothing_time=5.0,remove_stairsteps=True,ensure_monotonic=False):
-      time = self.df['Timestamp']
-      field = self.df['Field']
+      time = self.df['Timestamp'].values
+      field = self.df['Field'].values
+
+      # remove NaN
+      time = time[~np.isnan(field)]
+      field = field[~np.isnan(field)]
+
       if remove_stairsteps:
         time,field = un_stairstep_data(time,field)
       if ensure_monotonic:
