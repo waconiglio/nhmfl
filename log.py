@@ -24,7 +24,6 @@ class Experiment:
         d = self.vars.copy()
         d.update({'name':self.name})
         return d
-            
         
 class Probe:
     def __init__(self, snapshots=[]):
@@ -93,10 +92,12 @@ class Probe:
     #  output: a list we can load with Probe.load() that contains all the datasets < 1.5 kelvin
     def filter(self, condition):
         snaps = []
+        output = []
         for e in self.save():
             try:
                 if condition(e):
-                    yield e
+                    output.append(e)
             except:
                 pass
+        return output
 
