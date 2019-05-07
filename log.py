@@ -3,9 +3,9 @@ import copy
 import math
 
 
-# perhaps this would be better described as the experiment's current state
-class Experiment:
-    # name is the name of the experiment
+# perhaps this would be better described as the sample's current state
+class Sample:
+    # name is the name of the sample
     def __init__(self, name='', **kwargs):
         self.name = name
         self.variables = kwargs
@@ -32,49 +32,49 @@ class Experiment:
         d = self.variables.copy()
         d.update({'name':self.name})
         return d
-    def merge(self, other): # merge variables (except name) from another experiment into ours. other overwrites self.
+    def merge(self, other): # merge variables (except name) from another sample into ours. other overwrites self.
         for v in other.variables:
           self.variables[v] = other.variables[v]
         return self
             
         
-class Probe:
+class Experiment:
     def __init__(self, snapshots=[]):
-        self.default_exp = Experiment()
+        self.default_exp = Sample()
         self.load(snapshots)
         
     # p['var_name']
-    def __getitem__(self,experiment_name):
-        return self.experiments[experiment_name]
+    def __getitem__(self,sample_name):
+        return self.samples[sample_name]
     
     # perhaps these should be named include and exclude, so as to differentiate between add and remove for variables.
-    def include(self,*experiments):
-        # Add to experiment list. Experiments are indexed by name.
-        for e in experiments:
+    def include(self,*samples):
+        # Add to sample list. Samples are indexed by name.
+        for e in samples:
             e = copy.copy(e) # shallow copy, so that the original may be reused later
-            self.experiments[e.name] = e.merge(self.default_exp)
+            self.samples[e.name] = e.merge(self.default_exp)
             
         
-    def inc(self,*experiments):
-        return self.include(*experiments)
+    def inc(self,*samples):
+        return self.include(*samples)
 
-    def exclude(self,*experiment_names):
-        for e in experiment_names:
-            del(self.experiments[e])
-    def exc(self,*experiments):
-        return self.exclude(*experiments)
+    def exclude(self,*sample_names):
+        for e in sample_names:
+            del(self.samples[e])
+    def exc(self,*samples):
+        return self.exclude(*samples)
 
-    # clear all experiments and the internal state off the probe and start fresh
+    # clear all samples and the internal state off the experiment and start fresh
     # keep all the existing snapshots
     def clear(self):
-        self.experiments = {}
-        self.default_exp = Experiment()
+        self.samples = {}
+        self.default_exp = Sample()
         
-    # update child experiments with new or changed variables
+    # update child samples with new or changed variables
     def update(self, **kwargs):
-        # update child experiments
-        for e in self.experiments:
-            self.experiments[e].update(**kwargs)
+        # update child samples
+        for e in self.samples:
+            self.samples[e].update(**kwargs)
         self.default_exp.update(**kwargs)
     def up(self, **kwargs):
         return self.update(**kwargs)
@@ -87,16 +87,16 @@ class Probe:
     # update and snapshot in one step
     def snap(self, **kwargs):
         self.update(**kwargs)
-        for e in self.experiments:
-            exp_copy = self.experiments[e].save()
+        for e in self.samples:
+            exp_copy = self.samples[e].save()
             exp_copy.update({'sequence':self.sequence})
             self.snapshots.append(exp_copy)
         self.sequence += 1
         
-    # remove a variable from child experiments
+    # remove a variable from child samples
     def remove(self, *var_list):
-        for e in self.experiments:
-            self.experiments[e].remove(*var_list)
+        for e in self.samples:
+            self.samples[e].remove(*var_list)
         self.default_exp.remove(*var_list)
     # alias for remove
     def rm(self, *var_list):
@@ -108,22 +108,22 @@ class Probe:
     
     # load the entire history; if blank, initialize the object
     def load(self, snapshots):
-        self.experiments = {}
+        self.samples = {}
         self.snapshots = list(snapshots)
         self.sequence = 0 # increments with each snapshot
 
         if len(self.snapshots) == 0:
             return
 
-        # find all unique experiments as of final snapshot
+        # find all unique samples as of final snapshot
         self.sequence = self.snapshots[-1]['sequence'] + 1
         
-        # create experiments as of the final sequence snapshot
-        experiments = filter(lambda s: s['sequence'] == self.sequence - 1, self.snapshots)
-        for e in experiments:
+        # create samples as of the final sequence snapshot
+        samples = filter(lambda s: s['sequence'] == self.sequence - 1, self.snapshots)
+        for e in samples:
             e = e.copy()
             del(e['sequence'])
-            ee = Experiment()
+            ee = Sample()
             ee.load(e)
             self.include(ee)
 
@@ -133,7 +133,7 @@ class Probe:
     # Returns a generator object. Make a list with list() or iterate with a comprehension.
     # example:
     # p.filter(lambda e : e['Temperature'] < 1.5)
-    #  output: a list we can load with Probe.load() that contains all the datasets < 1.5 kelvin
+    #  output: a list we can load with Experiment.load() that contains all the datasets < 1.5 kelvin
     def filter(self, condition):
         l = []
         for e in self.save():
@@ -175,15 +175,15 @@ class Probe:
         return p.load(map(function,self.save()))
 
 
-# class Angle transforms angle data (and makes sure you don't do it twice), generally for use on a Probe
-# object that keeps track of a bunch of Experiment objects. Assume default key names to keep the calling
+# class Angle transforms angle data (and makes sure you don't do it twice), generally for use on a Experiment
+# object that keeps track of a bunch of Sample objects. Assume default key names to keep the calling
 # code short. If you need different ones, see AngleTransformer below.
 #
-# p = Probe
-#  ... populate probe ...
+# p = Experiment
+#  ... populate experiment ...
 # p.update(angle_mapper=Angle.shifted(-10))
 # p.snap(angle=45)
-# p = Probe.map(Angle.transform)
+# p = Experiment.map(Angle.transform)
 class Angle(float):
     def __new__(cls, val, mapper=Angle.identity):
         if val is None:             # converts Angle(None) to legal float representation NaN
@@ -207,7 +207,7 @@ class Angle(float):
     def shifted(d):
         return lambda x : x + d
 
-    # Apply angle transformations to an experiment dictionary. Use with Probe.map
+    # Apply angle transformations to an sample dictionary. Use with Experiment.map()
     @staticmethod
     def transform(dict_like, angle_variable='angle', angle_mapper='angle_mapper'):
         if angle_variable in dict_like and angle_mapper in dict_like:
@@ -217,10 +217,10 @@ class Angle(float):
         return dict_like
 
 # if you need to prepare a function for a call to map, but you are using different names for your keys,
-# p = Probe
-#  ... populate probe ...
+# p = Experiment
+#  ... populate experiment ...
 # t = AngleTransformer(angle_variable='angle_1')
-# p = Probe.map(t)
+# p = Experiment.map(t)
 class AngleTransformer:
     def __init__(self,angle_variable='angle', angle_mapper='angle_mapper'):
         self.angle_variable = angle_variable
