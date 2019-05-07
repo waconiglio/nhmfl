@@ -1,5 +1,6 @@
 import dateutil.parser as dt
 import copy
+import math
 
 
 # perhaps this would be better described as the experiment's current state
@@ -172,3 +173,58 @@ class Probe:
     def map(self, function):
         p = copy.copy(self)
         return p.load(map(function,self.save()))
+
+
+# class Angle transforms angle data (and makes sure you don't do it twice), generally for use on a Probe
+# object that keeps track of a bunch of Experiment objects. Assume default key names to keep the calling
+# code short. If you need different ones, see AngleTransformer below.
+#
+# p = Probe
+#  ... populate probe ...
+# p.update(angle_mapper=Angle.shifted(-10))
+# p.snap(angle=45)
+# p = Probe.map(Angle.transform)
+class Angle(float):
+    def __new__(cls, val, mapper=Angle.identity):
+        if val is None:             # converts Angle(None) to legal float representation NaN
+            return super(Angle, cls).__new__(cls, 'NaN')
+        if isinstance(val,Angle):   # covers case where mapper operation has already been applied
+            return val
+        return super(Angle, cls).__new__(cls, mapper(val))
+    def __str__(self):
+        if math.isnan(self):
+            return '(no angle)'
+        return '{:f} deg'.format(float(self))
+    def __repr__(self):
+        return self.__str__()
+    
+    identity = staticmethod(lambda x : x)
+    none = staticmethod(lambda x : Angle('NaN'))
+    @staticmethod
+    def fixed(x):
+        return lambda y : x
+    @staticmethod
+    def shifted(d):
+        return lambda x : x + d
+
+    # Apply angle transformations to an experiment dictionary. Use with Probe.map
+    @staticmethod
+    def transform(dict_like, angle_variable='angle', angle_mapper='angle_mapper'):
+        if angle_variable in dict_like and angle_mapper in dict_like:
+            dict_like[angle_variable] = Angle(dict_like[angle_variable], dict_like[angle_mapper])
+        if dict_like[angle_variable] is None:
+            del dict_like[angle_variable]
+        return dict_like
+
+# if you need to prepare a function for a call to map, but you are using different names for your keys,
+# p = Probe
+#  ... populate probe ...
+# t = AngleTransformer(angle_variable='angle_1')
+# p = Probe.map(t)
+class AngleTransformer:
+    def __init__(self,angle_variable='angle', angle_mapper='angle_mapper'):
+        self.angle_variable = angle_variable
+        self.angle_mapper = angle_mapper
+    def __call__(self,dict_like):
+        return Angle.transform(dict_like, self.angle_variable, self.angle_mapper)
+
