@@ -185,7 +185,7 @@ class Experiment:
 # p.snap(angle=45)
 # p = Experiment.map(Angle.transform)
 class Angle(float):
-    def __new__(cls, val, mapper=Angle.identity):
+    def __new__(cls, val, mapper=lambda x : x):
         if val is None:             # converts Angle(None) to legal float representation NaN
             return super(Angle, cls).__new__(cls, 'NaN')
         if isinstance(val,Angle):   # covers case where mapper operation has already been applied
@@ -209,12 +209,18 @@ class Angle(float):
 
     # Apply angle transformations to an sample dictionary. Use with Experiment.map()
     @staticmethod
-    def transform(dict_like, angle_variable='angle', angle_mapper='angle_mapper'):
+    def transform(dict_like, angle_variable='angle', angle_mapper='angle_mapper', mask_key_error=True):
+      try:
         if angle_variable in dict_like and angle_mapper in dict_like:
             dict_like[angle_variable] = Angle(dict_like[angle_variable], dict_like[angle_mapper])
         if dict_like[angle_variable] is None:
             del dict_like[angle_variable]
         return dict_like
+      except KeyError:
+        if mask_key_error:
+          return dict_like
+        else:
+          raise
 
 # if you need to prepare a function for a call to map, but you are using different names for your keys,
 # p = Experiment
@@ -222,9 +228,32 @@ class Angle(float):
 # t = AngleTransformer(angle_variable='angle_1')
 # p = Experiment.map(t)
 class AngleTransformer:
-    def __init__(self,angle_variable='angle', angle_mapper='angle_mapper'):
+    def __init__(self,angle_variable='angle', angle_mapper='angle_mapper', mask_key_error=True):
         self.angle_variable = angle_variable
         self.angle_mapper = angle_mapper
+        self.mask_key_error = mask_key_error
     def __call__(self,dict_like):
-        return Angle.transform(dict_like, self.angle_variable, self.angle_mapper)
+        return Angle.transform(dict_like, self.angle_variable, self.angle_mapper, self.mask_key_error)
 
+# call a function saved in a dictionary with the contents of the entire dictionary as a parameter. save the result
+# back to that dictionary.
+#
+# CODE:
+# A = [ {'a' : 1, 'b' : 2, 'op' : lambda D : D['a']+D['b'] } ,
+#       {'a' : 5, 'b' : 1, 'op' : lambda D : D['a']-D['b'] } ]
+# map(ExperimentVariableMapper('op'), A)
+#
+# OUTPUT:
+# [3, 4]
+class ExperimentVariableMapper:
+  def __init__(self, key, mask_key_error=True):
+    self.key = key
+    self.mask_key_error = mask_key_error
+  def __call__(self, dict_like):
+    try:
+      return dict_like[self.key](dict_like)
+    except KeyError:
+      if self.mask_key_error:
+        return dict_like
+      else:
+        raise
