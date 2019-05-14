@@ -416,22 +416,39 @@ def interpolate_smoothly(X, Y, dx=None, fixed_x=None, window_size=None, fit_wind
     #print "doing spline on csx and csy:"
     #print "csx=",csx
     #print "csy=",csy
+    #print "dtype of csy=",csy.dtype
     
     
-    # do cubic spline; default smoothing s is not zero, so must pass explicitly
-    cs = scipy.interpolate.splrep(csx, csy, s=0)
+    if np.any(np.iscomplex(csy)):
+      # do cubic spline; default smoothing s is not zero, so must pass explicitly
+      iscomplex = True
+      cs_real = scipy.interpolate.splrep(csx, np.real(csy), s=0)
+      cs_imag = scipy.interpolate.splrep(csx, np.imag(csy), s=0)
+    else:
+      iscomplex = False
+      cs = scipy.interpolate.splrep(csx, csy, s=0)
+
 
     if return_cubic_spline:
-        # return it as-is
+      if iscomplex:
+        return cs_real,cs_imag
+      else:
         return cs
+
     else:
         # figure out the domain. start at fixed_x and proceed backward or forward by dx steps until
         # we find the minimum and maximum possible values.
         
         # find largest domain of fixed_x + i*dx that is supported by data
         xnew = np.asarray( values_at_interval(csx, dx, fixed_x) )
-                      
-        ynew = scipy.interpolate.splev(xnew, cs, der=0)
+        
+        # if cs doesn't exist, try the complex version
+        if iscomplex:
+          ynew_real = scipy.interpolate.splev(xnew, cs_real, der=0)
+          ynew_imag = scipy.interpolate.splev(xnew, cs_imag, der=0)
+          ynew = ynew_real + 1.j*ynew_imag
+        else:
+          ynew = scipy.interpolate.splev(xnew, cs, der=0)
 
         # return result
         return xnew,ynew
