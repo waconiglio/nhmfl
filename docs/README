@@ -1,0 +1,4 @@
+Some documentation by example is available in this folder.
+
+Examples are in a Jupyter notebook. You will also need a fairly standard set of numerical and scientific
+libraries. You can get most of this in on go by downloading the Anaconda package for your system.
