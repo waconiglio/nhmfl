@@ -138,7 +138,9 @@ class NHMFL_DC_Data:
         #with open(fn,'r') as f:
             header,self.df = read_nml_header_and_data(f)
 
-            r3 = r'^(.*\.(?:txt|text)) ((?:Mon|Tue|Wed|Thu|Fri|Sat|Sun).*(?:am|pm)) (.*)'
+            # Some old files have no txt extension
+            #r3 = r'^(.*\.(?:txt|text)) ((?:Mon|Tue|Wed|Thu|Fri|Sat|Sun).*(?:am|pm)) (.*)'
+            r3 = r'^(.*) ((?:Mon|Tue|Wed|Thu|Fri|Sat|Sun).*(?:am|pm)) (.*)'
             self.filename,datestring,self.user = re.match(r3,header[0],flags=re.I).groups()       
             self.scale = [float(x) for x in re.findall(exp_notation_regex,header[3],flags=re.I)]
             self.magnet = re.findall(r'^Magnet.*: (.*)$',header[1])[0]
