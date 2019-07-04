@@ -46,17 +46,21 @@ def analytic_signal(x):
 # dx is the resulting spacing of returned points with one point fixed at fixed_x
 def values_at_interval(X, dx, fixed_x):
     #print "values_at_interval"
-    #print "values_at_interval(X=",X,", dx=",dx,", fixed_x=",fixed_x,")"
+    #print "values_at_interval(X=from {} to {}".format(min(X),max(X)), "dx=",dx,", fixed_x=",fixed_x,")"
     # find largest domain of fixed_x + i*dx that is supported by data
     x_min = int((X[0]-fixed_x)/dx)-1
     x_max = int((X[-1]-fixed_x)/dx)+1
     #print "x_min=",x_min
     #print "x_max=",x_max
     x_list = [(x+x_min)*dx+fixed_x for x in range(x_max-x_min+1)]
-    if x_list[0] < X[0]:
+    #print "min/max (x_list)= {} {}".format(min(x_list),max(x_list))
+    while x_list[0] < X[0]:
+        #print "deleted point from x_list[0]"
         del x_list[0]
-    if x_list[-1] > X[-1]:
+    while x_list[-1] > X[-1]:
+        #print "deleted point from x_list[-1]"
         del x_list[-1]
+    #print "before returning from values_at_interval, min/max (x_list)= {} {}".format(min(x_list),max(x_list))
     return x_list
 
 def make_array_if_not_already(a,length):

@@ -2,7 +2,8 @@ import numpy as np
 import scipy
 import scipy.interpolate
 
-
+import useful
+reload(useful)
 from useful import *
 
 # Strategy for interpolation with optimal noise reduction when output has an equally spaced domain:
@@ -441,6 +442,8 @@ def interpolate_smoothly(X, Y, dx=None, fixed_x=None, window_size=None, fit_wind
         
         # find largest domain of fixed_x + i*dx that is supported by data
         xnew = np.asarray( values_at_interval(csx, dx, fixed_x) )
+        #print "interpolate_smoothly() csx: {} {}".format(min(csx),max(csx))
+        #print "interpolate_smoothly() from values_at_interval: {} {}".format(min(xnew),max(xnew))
         
         # if cs doesn't exist, try the complex version
         if iscomplex:
