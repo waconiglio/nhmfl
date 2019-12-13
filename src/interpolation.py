@@ -215,9 +215,14 @@ def bracket_interval(A, lower, upper, start=None, inclusive=None, allow_endpoint
 # In[17]:
 
 
+# global default; may be changed by user for preview-style calculations
+fast_mode = False
 
 # dx and fixed_x define the control points. do they also define our desired output data?
-def interpolate_smoothly(X, Y, dx=None, fixed_x=None, window_size=None, fit_window=None, poly_order=None, expand_over_gap=None, min_control_point_spacing=None, return_cubic_spline=None, fast=False):
+def interpolate_smoothly(X, Y, dx=None, fixed_x=None, window_size=None, fit_window=None, poly_order=None, expand_over_gap=None, min_control_point_spacing=None, return_cubic_spline=None, fast=None):
+    if fast is None:
+      fast = fast_mode
+
     XI = np.argsort(X)
     #print "sorting table:",XI
     #print "len = ",len(XI)
