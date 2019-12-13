@@ -7,8 +7,8 @@ import scipy
 import scipy.interpolate
 import string
 
-from useful import *
-import interpolation
+from .useful import *
+from . import interpolation
 
 debug = False
 
@@ -112,7 +112,7 @@ def read_nml_header_and_data(f,require_line_count=20, dtype=np.float32):
     f.seek(x0) # Seek back to the start of the column names
     header = header[:y]
     if debug:
-      print "Header: ",header
+      print("Header: ",header)
     if len(header) == 0:
       raise ValueError('No data in file')
     df = pd.read_csv(f, dtype=dtype, delim_whitespace=True)
@@ -267,7 +267,7 @@ if __name__ == '__main__':
   #plt.plot(dc.df['Field'],dc.df['PCC'])
   #plt.show()
 
-  print "dc field:",dc.df['Field'].values[-7:]
+  print("dc field:",dc.df['Field'].values[-7:])
 
   t,b = make_monotonic(dc.df['Timestamp'].values,dc.df['Field'].values)
   t,b = un_stairstep_data(t,b)

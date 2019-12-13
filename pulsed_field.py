@@ -7,7 +7,7 @@ def integrate_bdot(bdot, area, dt):
     # integrate
     field = np.cumsum(np.asarray(bdot)/area*dt)
     # correct ending field to zero
-    field -= field[-1] * np.asarray(range(len(field))) / len(field)
+    field -= field[-1] * np.asarray(list(range(len(field)))) / len(field)
     return field
 
 # given a starting index i0, find range of contiguous elements

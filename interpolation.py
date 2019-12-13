@@ -2,9 +2,10 @@ import numpy as np
 import scipy
 import scipy.interpolate
 
-import useful
-reload(useful)
-from useful import *
+from . import useful
+import importlib
+importlib.reload(useful)
+from .useful import *
 
 # Strategy for interpolation with optimal noise reduction when output has an equally spaced domain:
 # 
@@ -277,7 +278,7 @@ def interpolate_smoothly(X, Y, dx=None, fixed_x=None, window_size=None, fit_wind
       rough_data_index = 0
       
       # do it in reversed order so we can remove points from control_points if we can't use them.
-      for i in reversed(range(len(control_points))):
+      for i in reversed(list(range(len(control_points)))):
           #print ""
           #print "control_points[",i,"] = ",control_points[i]
                         
@@ -319,7 +320,7 @@ def interpolate_smoothly(X, Y, dx=None, fixed_x=None, window_size=None, fit_wind
                   # exact_cs_points
                   continue
               else:
-                  print "Not enough points to fit. Don't use expand_over_gap=False"
+                  print("Not enough points to fit. Don't use expand_over_gap=False")
                   # add to lost_control_points and skip the rest of the loop. Can we actually do anything
                   # with the lost control points? There are gaps in the data here. Might have to discard.
                   lost_control_points += [control_points[i]]
@@ -370,7 +371,7 @@ def interpolate_smoothly(X, Y, dx=None, fixed_x=None, window_size=None, fit_wind
       csy = list(reversed(csy))
       
       # zip lists so we can check for duplicates
-      cs = zip(csx,csy)
+      cs = list(zip(csx,csy))
           
       #print "exact_cs_points=",exact_cs_points
       #print "xy_points_fitted=",xy_points_fitted
@@ -384,7 +385,7 @@ def interpolate_smoothly(X, Y, dx=None, fixed_x=None, window_size=None, fit_wind
           
       # Include exact spline handles (except for those that have been used as fit points). Remove 
       # duplicate entries by converting to a set, then unzipping. Note that zip(*x) is inverse of zip.
-      points =  zip(*list(set(cs).union(exact_cs_points-xy_points_fitted)))
+      points =  list(zip(*list(set(cs).union(exact_cs_points-xy_points_fitted))))
       #print "Duplicates removed. zip(exact_cs_points)=",points
       
       csx = list(points[0])
@@ -404,7 +405,7 @@ def interpolate_smoothly(X, Y, dx=None, fixed_x=None, window_size=None, fit_wind
         #
         # Implemented method: delete from end to beginning if spacings are too close. average in a 
         # way that becomes crude if we end up deleting more points.
-        for i in reversed(range(0,len(csx)-1)):
+        for i in reversed(list(range(0,len(csx)-1))):
             if abs(csx[i]-csx[i+1]) < min_control_point_spacing:
                 csy[i+1] = (csy[i+1]+csy[i])/2
                 del(csx[i])

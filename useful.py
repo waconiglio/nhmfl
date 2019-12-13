@@ -3,7 +3,7 @@ import numpy as np
 # shuffle array a using the indices given in indices
 def shuffle_array(a, indices):
     if len(a) != len(indices):
-        print 'Error: array length mismatch: a='+str(len(a))+', indices='+str(len(indices))
+        print('Error: array length mismatch: a='+str(len(a))+', indices='+str(len(indices)))
     #print "shuffle array. a =",a
     c = np.zeros(len(indices),dtype=a.dtype)
     for i in range(len(indices)):
@@ -13,7 +13,7 @@ def shuffle_array(a, indices):
     return c
 def shuffle_list(a, indices):
     if len(a) != len(indices):
-        print 'Error: array length mismatch: a='+str(len(a))+', indices='+str(len(indices))
+        print('Error: array length mismatch: a='+str(len(a))+', indices='+str(len(indices)))
     #print "shuffle array. a =",a
     c = [0.0]*(len(indices))
     for i in range(len(indices)):

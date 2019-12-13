@@ -10,7 +10,7 @@ def parse_curve(isf_file):
     Reads one tektronix .isf file and returns a dictionary containing
     all tags as keys. The actual data is stored in the key "data".
     """
-    extensions = set([".isf"])
+    extensions = {".isf"}
     if os.path.splitext(isf_file)[-1].lower() not in extensions:
         raise ValueError("File type unkown.")
 

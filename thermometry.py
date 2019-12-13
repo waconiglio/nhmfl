@@ -67,7 +67,7 @@ def fit_rational(x,y,config,p_guess=None):
     else:
         p_guess = list(p_guess[0]) + list(p_guess[1])
     popt, pcov = scipy.optimize.curve_fit(rational_objective_func_builder(config), x, y, p0=p_guess, method='dogbox')
-    print popt
+    print(popt)
     p,q = popt[:config['len_p']],popt[config['len_p']:]
     if 'p0' in config:
         p = list(p) + [config['p0']]
@@ -368,12 +368,12 @@ class ThermometryInFieldCurve:
 
         fwd_cheb_coeffs = list()
         rev_cheb_coeffs = list()
-        print "field_ranges=",field_ranges
+        print("field_ranges=",field_ranges)
         field_centers = [sum(x)/2 for x in field_ranges]
         for low,high in field_ranges:
             # filter only the points within our field range
             # rba stands for read-bfield,actual
-            rba = filter(lambda rba: rba[1]>=low and rba[1]<high,zip(R_read,B,R_actual))
+            rba = [rba for rba in zip(R_read,B,R_actual) if rba[1]>=low and rba[1]<high]
             
             # here, divide by the zero-field calibration curve so we only compute
             # a difference curve
@@ -383,11 +383,11 @@ class ThermometryInFieldCurve:
             field_ch.set_a_limits(self.read_limits)
             field_ch.set_b_limits(self.actual_limits)
 
-            r,b,a = zip(*rba)
+            r,b,a = list(zip(*rba))
 
             field_ch.fit(r, a)
-            print "field=",(low+high)/2,"ab_cheb: ",field_ch.ab_cheb
-            print "field=",(low+high)/2,"ba_cheb: ",field_ch.ba_cheb
+            print("field=",(low+high)/2,"ab_cheb: ",field_ch.ab_cheb)
+            print("field=",(low+high)/2,"ba_cheb: ",field_ch.ba_cheb)
             
             #x-axis is log(resistance read), y-axis is log(resistance corresponding to actual)
             plt.scatter(np.log(r),np.log(a),label=str((low+high)/2))
@@ -398,8 +398,8 @@ class ThermometryInFieldCurve:
             fwd_cheb_coeffs.append(field_ch.ab_cheb)
             rev_cheb_coeffs.append(field_ch.ba_cheb)
         # transpose list
-        fwd_cheb_coeffs = map(list, zip(*fwd_cheb_coeffs))
-        rev_cheb_coeffs = map(list, zip(*rev_cheb_coeffs))
+        fwd_cheb_coeffs = list(map(list, list(zip(*fwd_cheb_coeffs))))
+        rev_cheb_coeffs = list(map(list, list(zip(*rev_cheb_coeffs))))
         
         # find the cheb coeffs for a 1:1 line
         ch_line = ScaledChebyshev(cheb_order=cheb_order)
@@ -407,7 +407,7 @@ class ThermometryInFieldCurve:
         ch_line.set_a_limits(self.read_limits)
         ch_line.set_b_limits(self.actual_limits)
         ch_line.fit(geomspace_r, geomspace_r)
-        print "straight line cheb:",ch_line.ab_cheb, "and in reverse: ",ch_line.ba_cheb
+        print("straight line cheb:",ch_line.ab_cheb, "and in reverse: ",ch_line.ba_cheb)
             
         self.fwd_p_coeffs = list()
         self.fwd_q_coeffs = list()
@@ -415,13 +415,13 @@ class ThermometryInFieldCurve:
             p,q = fit_rational(field_centers,c_vs_field,{'len_p':p_order,'len_q':q_order,'p0':zero_point}) #
             self.fwd_p_coeffs.append(p)
             self.fwd_q_coeffs.append(q)
-            print "PQ(0) must =",zero_point
+            print("PQ(0) must =",zero_point)
             plt.scatter(field_centers,c_vs_field)
             plt.plot(np.linspace(0,self.field_limits[1]),[rational(x,p,q) for x in np.linspace(0,self.field_limits[1])])
             plt.show()
-            print p,q
-        print "fwd p coeffs=",self.fwd_p_coeffs
-        print "fwd q coeffs=",self.fwd_q_coeffs
+            print(p,q)
+        print("fwd p coeffs=",self.fwd_p_coeffs)
+        print("fwd q coeffs=",self.fwd_q_coeffs)
 
         self.rev_p_coeffs = list()
         self.rev_q_coeffs = list()
@@ -429,13 +429,13 @@ class ThermometryInFieldCurve:
             p,q = fit_rational(field_centers,c_vs_field,{'len_p':p_order,'len_q':q_order,'p0':zero_point}) #
             self.rev_p_coeffs.append(p)
             self.rev_q_coeffs.append(q)
-            print "PQ(0) must =",zero_point
+            print("PQ(0) must =",zero_point)
             plt.scatter(field_centers,c_vs_field)
             plt.plot(np.linspace(0,self.field_limits[1]),[rational(x,p,q) for x in np.linspace(0,self.field_limits[1])])
             plt.show()
-            print p,q
-        print "rev p coeffs=",self.rev_p_coeffs
-        print "rev q coeffs=",self.rev_q_coeffs
+            print(p,q)
+        print("rev p coeffs=",self.rev_p_coeffs)
+        print("rev q coeffs=",self.rev_q_coeffs)
 
 
     # convenience functions that let you call the calibration with various resistance or temperature datasets
@@ -458,7 +458,7 @@ class ThermometryInFieldCurve:
           # Get approximate chebyshev fit over all field values. This also sets appropriate
           # limits so the fits stay close to the [-1:1] domain
           rough_curve.cheb_thermometer_calibration(R, T)
-          print "rough calibration for all B:",rough_curve.fwd_cheb
+          print("rough calibration for all B:",rough_curve.fwd_cheb)
           
           self.p_coeffs = np.zeros((self.cheb_order,p_order))
           #print "setting up p array:",self.p_coeffs
@@ -492,7 +492,7 @@ class ThermometryInFieldCurve:
               cheb = np.zeros(self.cheb_order)
               return [s.actual_temperature(r,b,P,Q) for r,b in zip(R,B)]
 
-          print "initial guess v=",v
+          print("initial guess v=",v)
           popt, pcov = scipy.optimize.curve_fit(rational_vs_cheb_eval,(R,B),T,v,epsfcn=1e-9)
           self.p_coeffs = popt[:self.cheb_order*p_order].reshape((self.cheb_order,p_order))
           self.q_coeffs = popt[self.cheb_order*p_order:].reshape((self.cheb_order,q_order))

@@ -119,7 +119,7 @@ class Experiment:
         self.sequence = self.snapshots[-1]['sequence'] + 1
         
         # create samples as of the final sequence snapshot
-        samples = filter(lambda s: s['sequence'] == self.sequence - 1, self.snapshots)
+        samples = [s for s in self.snapshots if s['sequence'] == self.sequence - 1]
         for e in samples:
             e = e.copy()
             del(e['sequence'])
@@ -153,7 +153,7 @@ class Experiment:
           try:
             for k in kwargs:
               # check for a date string and convert it if necessary
-              if k == 'date' and type(kwargs[k]) == type(''):
+              if k == 'date' and isinstance(kwargs[k], type('')):
                 if e[k] != dt.parse(kwargs[k]):
                   match = False
                   break
@@ -172,7 +172,7 @@ class Experiment:
 
     def map(self, function):
         p = copy.copy(self)
-        return p.load(map(function,self.save()))
+        return p.load(list(map(function,self.save())))
 
 
 # class Angle transforms angle data (and makes sure you don't do it twice), generally for use on a Experiment
