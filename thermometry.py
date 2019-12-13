@@ -112,8 +112,8 @@ class ScaledChebyshev:
         self.cheb_order = int(cheb_order) # order of the Chebyshev polynomial mapping a and b
         self.a_limits = None
         self.b_limits = None
-	self.a_log = False
-	self.b_log = False
+        self.a_log = False
+        self.b_log = False
         
 
     def read(self, c):
@@ -150,12 +150,12 @@ class ScaledChebyshev:
             self.b_limits = np.log(d) if self.b_log else d
     def get_a_limits(self):
         if self.a_limits is None:
-	    return None
-	return np.exp(self.a_limits) if self.a_log else self.a_limits
+            return None
+        return np.exp(self.a_limits) if self.a_log else self.a_limits
     def get_b_limits(self):
         if self.b_limits is None:
-	    return None
-	return np.exp(self.b_limits) if self.b_log else self.b_limits
+            return None
+        return np.exp(self.b_limits) if self.b_log else self.b_limits
 
             
     def fit(self, a, b, cheb_order=None):
@@ -166,42 +166,42 @@ class ScaledChebyshev:
         a = np.log(a) if self.a_log else a
         b = np.log(b) if self.b_log else b
 
-	if self.a_limits is None:
-	    self.a_limits = (min(a),max(a))
-	if self.b_limits is None:
-	    self.b_limits = (min(b),max(b))
+        if self.a_limits is None:
+            self.a_limits = (min(a),max(a))
+        if self.b_limits is None:
+            self.b_limits = (min(b),max(b))
 
-	a = to_unity_range(a,self.a_limits)
-	b = to_unity_range(b,self.b_limits)
+        a = to_unity_range(a,self.a_limits)
+        b = to_unity_range(b,self.b_limits)
 
-    	self.ab_cheb = np.polynomial.chebyshev.chebfit(a,b,self.cheb_order-1)
-    	self.ba_cheb = np.polynomial.chebyshev.chebfit(b,a,self.cheb_order-1)
+        self.ab_cheb = np.polynomial.chebyshev.chebfit(a,b,self.cheb_order-1)
+        self.ba_cheb = np.polynomial.chebyshev.chebfit(b,a,self.cheb_order-1)
 
     
     def a_to_b(self, a):
-    	if self.cheb_order == 0:
-	    return a
-    	a = np.log(a) if self.a_log else a
-	a = to_unity_range(a,self.a_limits)
-	b = np.polynomial.chebyshev.chebval(a, self.ab_cheb, tensor=False)
-	b = from_unity_range(b,self.b_limits)
-    	return np.exp(b) if self.b_log else b
+        if self.cheb_order == 0:
+            return a
+        a = np.log(a) if self.a_log else a
+        a = to_unity_range(a,self.a_limits)
+        b = np.polynomial.chebyshev.chebval(a, self.ab_cheb, tensor=False)
+        b = from_unity_range(b,self.b_limits)
+        return np.exp(b) if self.b_log else b
 
     def b_to_a(self, b):
-    	if self.cheb_order == 0:
-	    return b
-    	b = np.log(b) if self.b_log else b
-	b = to_unity_range(b,self.b_limits)
-	a = np.polynomial.chebyshev.chebval(b, self.ba_cheb, tensor=False)
-	a = from_unity_range(a,self.a_limits)
-    	return np.exp(a) if self.a_log else a
+        if self.cheb_order == 0:
+            return b
+        b = np.log(b) if self.b_log else b
+        b = to_unity_range(b,self.b_limits)
+        a = np.polynomial.chebyshev.chebval(b, self.ba_cheb, tensor=False)
+        a = from_unity_range(a,self.a_limits)
+        return np.exp(a) if self.a_log else a
 
 
 class ThermometryChebyshev(ScaledChebyshev):
     def __init__(self,cheb_order=0, name=''):
         ScaledChebyshev.__init__(self,cheb_order)
-	self.name = name
-	self.a_log = self.b_log = True
+        self.name = name
+        self.a_log = self.b_log = True
 
     def r_to_t(self, R):
         return self.a_to_b(R)
