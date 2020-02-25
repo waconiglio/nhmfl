@@ -427,7 +427,11 @@ def interpolate_smoothly(X, Y, dx=None, fixed_x=None, window_size=None, fit_wind
       cs_imag = scipy.interpolate.splrep(csx, np.imag(csy), s=0)
     else:
       iscomplex = False
-      cs = scipy.interpolate.splrep(csx, csy, s=0)
+      try:
+        cs = scipy.interpolate.splrep(csx, csy, s=0)
+      except TypeError:
+        f_interp = scipy.interpolate.interp1d(csx, csy, kind='linear')
+        print 'Falling back to linear interpolation.'
 
 
     if return_cubic_spline:
@@ -451,7 +455,10 @@ def interpolate_smoothly(X, Y, dx=None, fixed_x=None, window_size=None, fit_wind
           ynew_imag = scipy.interpolate.splev(xnew, cs_imag, der=0)
           ynew = ynew_real + 1.j*ynew_imag
         else:
-          ynew = scipy.interpolate.splev(xnew, cs, der=0)
+          try:
+            ynew = scipy.interpolate.splev(xnew, cs, der=0)
+          except:
+            ynew = f_interp(xnew)
 
         # return result
         return xnew,ynew
@@ -466,3 +473,39 @@ if __name__ == '__main__':
   plt.scatter(x,y)
   plt.plot(x2,y2)
   plt.show()
+
+# splines X-Y data along X, keeps domain (X-values) that are in-common
+# performs operation on Y-arrays
+#
+# if XX is a list of x-arrays
+#  and YY is a list of y-arrays:
+# zipXXYY = zip(XX, YY)
+#
+# returns the common domain X and the reduced range data Y
+def common_domain_reduce(zipXXYY, operation, dx=None):
+  x_data, y_data = zip(*zipXXYY)
+  if dx is None:
+      # get dx from first dataset
+      dx = (x_data[0][-1] - x_data[0][0])/(len(x_data[0])-1)
+
+  # the notation "sum" is used here, but the operation is performed generally
+  x_sum,y_sum = interpolate_smoothly(x_data[0],y_data[0],dx)
+  y_sum[:] = 0 
+
+  for x,y in zip(x_data,y_data): 
+      x,y = interpolate_smoothly(x,y,dx)
+      
+      # find out the respective limits of the x 
+      a_ll,a_ul,b_ll,b_ul = domain_intersection_limits(x,x_sum) 
+      # subset x 
+      x_sum = x_sum[b_ll:b_ul] 
+      # subset and sum y_data 
+      y_sum = operation(y_sum[b_ll:b_ul], y[a_ll:a_ul])
+  return x_sum,y_sum
+
+# if XX is a list of x-arrays
+#  and YY is a list of y-arrays:
+# zipXXYY = zip(XX, YY)
+def average_xy_datasets(zipXXYY, dx=None):
+  x_sum, y_sum = common_domain_reduce(zipXXYY, np.add, dx=dx)
+  return x_sum, y_sum/len(zipXXYY)
