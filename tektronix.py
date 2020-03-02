@@ -3,7 +3,8 @@ import os.path
 
 
 # Tektronix parsing code from StackExchange user Dux
-# Posted 18 May 2015 with no license attached
+# Posted 18 May 2015 with no license attached.
+# Posts to StackExchange are licensed under a CreativeCommons license.
 
 def parse_curve(isf_file):
     """

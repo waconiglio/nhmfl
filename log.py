@@ -9,6 +9,10 @@ class Sample:
     def __init__(self, name='', **kwargs):
         self.name = name
         self.variables = kwargs
+        try:
+          del(self.variables['name'])
+        except KeyError:
+          pass
     def __getitem__(self,v):
         return self.variables[v]
     def update(self, **kwargs):
@@ -257,3 +261,13 @@ class ExperimentVariableMapper:
         return dict_like
       else:
         raise
+
+#class DatasetCacheFile:
+    # opens and closes hdf5 file as needed
+    # creates groups necessary to return the requested node
+        
+#class CachedDatasetGroup:
+    # caches a bunch of related datasets in an hdf5 group with a hash
+    #
+    # methods: get() tries to load the data from the cache
+    #          set() stores the hash and data, replacing everything in the group
