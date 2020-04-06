@@ -2,7 +2,7 @@ import numpy as np
 import scipy
 import scipy.interpolate
 
-from useful import *
+from .useful import *
 
 # Strategy for interpolation with optimal noise reduction when output has an equally spaced domain:
 # 
