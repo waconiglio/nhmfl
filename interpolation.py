@@ -2,10 +2,7 @@ import numpy as np
 import scipy
 import scipy.interpolate
 
-from . import useful
-import importlib
-importlib.reload(useful)
-from .useful import *
+from useful import *
 
 # Strategy for interpolation with optimal noise reduction when output has an equally spaced domain:
 # 
@@ -449,7 +446,7 @@ def interpolate_smoothly(X, Y, dx=None, fixed_x=None, window_size=None, fit_wind
         cs = scipy.interpolate.splrep(csx, csy, s=0)
       except TypeError:
         f_interp = scipy.interpolate.interp1d(csx, csy, kind='linear')
-        print 'Falling back to linear interpolation.'
+        print('Falling back to linear interpolation.')
 
 
     if return_cubic_spline:
