@@ -17,7 +17,17 @@ from useful import *
 # </ol>
 
 # In[42]:
-
+def auto_decimate(x, dx):
+    tf = np.ones(len(x), dtype=bool)
+    xlow = x[0]
+    for i in range(1,len(x)-1):
+        # if our absence would not cause the resulting interval to fall below dx,
+        # mark for deletion
+        if abs(x[i+1]-xlow) < dx:
+            tf[i] = False
+        else:
+            xlow = x[i]
+    return tf
 
 
 # Bracket the indices of an array surrounding value limits.
@@ -261,8 +271,10 @@ def interpolate_smoothly(X, Y, dx=None, fixed_x=None, window_size=None, fit_wind
     
     # fast mode for preview
     if fast:
-      csx = list(X)
-      csy = list(Y)
+      # first remove duplicate or closely spaced entries
+      tf = auto_decimate(X,dx/4)
+      csx = list(X[tf])
+      csy = list(Y[tf])
 
     # main routine for real data
     else:
