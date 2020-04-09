@@ -157,6 +157,11 @@ class NHMFL_DC_Data:
     def __getitem__(self, x):
       return self.df[x].values
     
+    def __contains__(self, item):
+        return item in self.df
+    
+    # should probably also define __iter__(self) and __len__(self)
+    
     def clean_field(self,smoothing_time=5.0,remove_stairsteps=True,ensure_monotonic=False):
       time = self.df['Timestamp'].values
       field = self.df['Field'].values
