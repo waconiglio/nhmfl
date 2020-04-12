@@ -14,7 +14,29 @@ class Sample:
         except KeyError:
           pass
     def __getitem__(self,v):
+        if v == 'name':
+            return self.name
         return self.variables[v]
+
+    def __setitem__(self,v,value):
+        if v == 'name':
+            raise KeyError('\'name\' is reserved in class Sample')
+        self.variables[v] = value
+
+    def __eq__(self, other):
+        try:
+            return (self.name == other.name and self.variables == other.variables)
+        except:
+            return hash(self) == hash(other)
+
+    CONSIDER USING ATTRIBUTES TO MAKE MAPPER FUNCTIONS CALLABLE!
+
+    def __hash__(self):
+        return hash(self.name + repr(self.variables))
+
+    def __len__(self):
+        return len(self.variables)
+
     def update(self, **kwargs):
         self.variables.update(kwargs)
     def up(self, **kwargs):
@@ -40,16 +62,67 @@ class Sample:
         for v in other.variables:
           self.variables[v] = other.variables[v]
         return self
-            
         
 class Experiment:
     def __init__(self, snapshots=[]):
         self.default_exp = Sample()
         self.load(snapshots)
-        
-    # p['var_name']
-    def __getitem__(self,sample_name):
-        return self.samples[sample_name]
+        primary_key('{:d}', ['sequence'])
+
+    def primary_key(prikey_format='[{:}_{:03d}]', variables=['name','n'], functions=None):
+        self.prikey_format = prikey_format
+		if functions is not None:
+			self.prikey_kargs = functions
+		else:
+			self.prikey_kargs = [lambda x: self.snapshots[x] for x in variables]
+
+    # let's not index off sample name. it's much more natural
+    # to index based on some sort of defined primary key.
+    #
+    # that said, we need to come up with a quick way to reference one sample in the experiment now.
+    CONSIDER DYNAMICALLY CHANGING __getitem__ TO BE SAMPLES WHEN SNAPPING, THEN SNAPSHOTS WHEN ANALYZING DATA
+    End snapping with a self.end() method.
+    def __getitem__(self,prikey):
+        return [s for s in self.snapshots if s['primary_key'] == prikey][0]
+
+    def __len__(self):
+        return len(self.snapshots)
+
+    def __iter__(self):
+        return iter(self.snapshots)
+
+    # operates on primary key
+    def __contains__(self, a):
+        return any([x['primary_key'] == a for x in self.snapshots])
+
+    # i can't think of a time to use this, but here it is. maybe if we import some lists that
+    # are missing private keys, we need to run it to get indexing capability.
+    def gen_prikey(self, overwrite=False):
+        for s in self.snapshots:
+            if 'primary_key' not in s or overwrite:
+                self.snapshot_gen_prikey(s)
+
+    # generate private key for snapshot s
+    # format follows string.format().
+    # further arguments refer to {:} portions of the format specifier, where the functions take the 
+    #   sample data as input.
+    def snapshot_gen_prikey(self, s):
+        output_key = 'primary_key'
+        format_args = [k(s) for k in self.prikey_kargs]
+        prikey = self.prikey_format.format(*format_args)
+        extension = ord('a')
+
+        # at some point, we whould lift the 26-limit here and create aa, ab, ac... as needed
+        try:
+            while any(x[output_key] == prikey if output_key in x else False for x in self.snapshots):
+            prikey = format_spec.format(*format_args) + chr(extension)
+            extension += 1
+            if extension > ord('z'):
+                raise KeyError
+        except StopIteration:
+            pass
+        s[output_key] = prikey
+
     
     # perhaps these should be named include and exclude, so as to differentiate between add and remove for variables.
     def include(self,*samples):
@@ -74,8 +147,18 @@ class Experiment:
         self.samples = {}
         self.default_exp = Sample()
         
+
+    def handle_sample_spec(self, sample):
+        # first handle the string or Sample case explicitly
+        if isinstance(sample, (basestring,Sample)):
+            sample = [sample]
+        # now check to see if it is an iterable. if not, make it so.
+        TO DO HERE
+
     # update child samples with new or changed variables
-    def update(self, **kwargs):
+    def update(self, sample=None, **kwargs):
+
+
         # update child samples
         for e in self.samples:
             self.samples[e].update(**kwargs)
@@ -94,8 +177,16 @@ class Experiment:
         for e in self.samples:
             exp_copy = self.samples[e].save()
             exp_copy.update({'sequence':self.sequence})
+            self.snapshot_gen_prikey(exp_copy)
             self.snapshots.append(exp_copy)
         self.sequence += 1
+
+    # adjust something on the most recent snapshot temporarily withou updating the ongoing state of the samples
+    def amend(self, **kwargs):
+        for sample,snapshot in zip(reversed(self.samples),reversed(self.snapshots)):
+            snapshot.update(**kwargs)
+
+
         
     # remove a variable from child samples
     def remove(self, *var_list):
