@@ -1,6 +1,7 @@
 import dateutil.parser as dt
 import copy
 import math
+from enum import Enum
 
 
 # perhaps this would be better described as the sample's current state
@@ -14,7 +15,42 @@ class Sample:
         except KeyError:
           pass
     def __getitem__(self,v):
+        if v == 'name':
+            return self.name
         return self.variables[v]
+
+    def __setitem__(self,v,value):
+        if v == 'name':
+            raise KeyError('\'name\' is reserved in class Sample')
+        self.variables[v] = value
+
+    def __eq__(self, other):
+        try:
+            return (self.name == other.name and self.variables == other.variables)
+        except:
+            return hash(self) == hash(other)
+
+    # if we have a mapper function, return it
+    def __getattr__(self, name):
+        # avoid recursion by checking for this one explicitly
+        if name == 'variables':
+            return []
+
+        if name not in self.variables:
+            raise AttributeError('{:} is not in the variable list.'.format(name))
+        if not callable(self.variables[name]):
+            raise AttributeError('{:} is not callable, as required to be returned from Sample.'.format(name))
+        def run_map():
+            self.merge(self.variables[name](self))
+            return self
+        return run_map
+
+    def __hash__(self):
+        return hash(self.name + repr(self.variables))
+
+    def __len__(self):
+        return len(self.variables)
+
     def update(self, **kwargs):
         self.variables.update(kwargs)
     def up(self, **kwargs):
@@ -32,6 +68,7 @@ class Sample:
         self.variables = {}
         self.variables.update(d)
         del(self.variables['name'])
+        return self
     def save(self):
         d = self.variables.copy()
         d.update({'name':self.name})
@@ -40,16 +77,80 @@ class Sample:
         for v in other.variables:
           self.variables[v] = other.variables[v]
         return self
-            
         
 class Experiment:
+    class Mode(Enum):
+        snapping = 1
+        analyzing = 2
+
+
     def __init__(self, snapshots=[]):
         self.default_exp = Sample()
         self.load(snapshots)
-        
-    # p['var_name']
-    def __getitem__(self,sample_name):
-        return self.samples[sample_name]
+        self.primary_key('{:d}', ['sequence'])
+        if len(snapshots) == 0:
+            self.mode = Experiment.Mode.snapping
+        else:
+            self.mode = Experiment.Mode.analyzing
+
+    def primary_key(self, prikey_format='[{:}_{:03d}]', variables=['name','n'], functions=None):
+        self.prikey_format = prikey_format
+        if functions is not None:
+            self.prikey_kargs = functions
+        else:
+            self.prikey_kargs = [lambda x: self.snapshots[x] for x in variables]
+
+
+    # When documenting the experiment, we often have need to index based on the sample name 
+    # to set unique variables or such. When analyzing data, we need access to the snapshot rows.
+    # 
+    # Overload __getitem__ to work in either mode, depending on what we are doing at the time.
+    # Set the mode enum, or let it get set to Mode.snapping automatically at creation, then change
+    # to Mode.analyzing when we call end()
+    def __getitem__(self,key):
+        if self.mode == Experiment.Mode.snapping:
+            return [s for s in self.samples if s['name'] == key][0]
+        else:
+            return Sample().load([s for s in self.snapshots if s['primary_key'] == key][0])
+
+    def __len__(self):
+        return len(self.snapshots)
+
+    def __iter__(self):
+        return iter(self.snapshots)
+
+    # operates on primary key
+    def __contains__(self, a):
+        return any([x['primary_key'] == a for x in self.snapshots])
+
+    # i can't think of a time to use this, but here it is. maybe if we import some lists that
+    # are missing private keys, we need to run it to get indexing capability.
+    def gen_prikey(self, overwrite=False):
+        for s in self.snapshots:
+            if 'primary_key' not in s or overwrite:
+                self.snapshot_gen_prikey(s)
+
+    # generate private key for snapshot s
+    # format follows string.format().
+    # further arguments refer to {:} portions of the format specifier, where the functions take the 
+    #   sample data as input.
+    def snapshot_gen_prikey(self, s):
+        output_key = 'primary_key'
+        format_args = [k(s) for k in self.prikey_kargs]
+        prikey = self.prikey_format.format(*format_args)
+        extension = ord('a')
+
+        # at some point, we whould lift the 26-limit here and create aa, ab, ac... as needed
+        try:
+            while any(x[output_key] == prikey if output_key in x else False for x in self.snapshots):
+                prikey = self.prikey_format.format(*format_args) + chr(extension)
+                extension += 1
+                if extension > ord('z'):
+                    raise KeyError
+        except StopIteration:
+            pass
+        s[output_key] = prikey
+
     
     # perhaps these should be named include and exclude, so as to differentiate between add and remove for variables.
     def include(self,*samples):
@@ -94,8 +195,19 @@ class Experiment:
         for e in self.samples:
             exp_copy = self.samples[e].save()
             exp_copy.update({'sequence':self.sequence})
+            self.snapshot_gen_prikey(exp_copy)
             self.snapshots.append(exp_copy)
         self.sequence += 1
+
+    # adjust something on the most recent snapshot temporarily withou updating the ongoing state of the samples
+    def amend(self, **kwargs):
+        for sample,snapshot in zip(reversed(self.samples),reversed(self.snapshots)):
+            snapshot.update(**kwargs)
+
+    # call at end of experiment logging when you are ready to analyze data
+    def end(self):
+        self.mode = Experiment.Mode.analyzing
+
         
     # remove a variable from child samples
     def remove(self, *var_list):
