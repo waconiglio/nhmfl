@@ -116,7 +116,7 @@ class ExperimentIterator(collections.Iterator):
             self.it = iter(e.snapshots)
 
     def __next__(self):
-        return Sample().load(next(self.it))
+        return next(self.it)
 
 class Experiment:
     class Mode(Enum):
