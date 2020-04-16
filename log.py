@@ -2,6 +2,7 @@ import dateutil.parser as dt
 import copy
 import math
 from enum import Enum
+import collections
 
 
 # perhaps this would be better described as the sample's current state
@@ -24,11 +25,27 @@ class Sample:
             raise KeyError('\'name\' is reserved in class Sample')
         self.variables[v] = value
 
+    def __delitem__(self,v):
+        if v == 'name':
+            raise KeyError('\'name\' is reserved in class Sample')
+        del(self.variables[v])
+
+    def __contains__(self, v):
+        return v in self.variables or v == 'name'
+
     def __eq__(self, other):
         try:
             return (self.name == other.name and self.variables == other.variables)
         except:
             return hash(self) == hash(other)
+
+    def __str__(self):
+        v = self.variables.copy()
+        v['name'] = self.name
+        return str(v)
+    
+    def __repr__(self):
+        return str(self)
 
     # if we have a mapper function, return it
     def __getattr__(self, name):
@@ -37,7 +54,7 @@ class Sample:
             return []
 
         if name not in self.variables:
-            raise AttributeError('{:} is not in the variable list.'.format(name))
+            raise AttributeError('{:} is not a method of Sample, nor is it in the variable list.'.format(name))
         if not callable(self.variables[name]):
             raise AttributeError('{:} is not callable, as required to be returned from Sample.'.format(name))
         def run_map():
@@ -51,7 +68,11 @@ class Sample:
     def __len__(self):
         return len(self.variables)
 
-    def update(self, **kwargs):
+    # just like dict.update(), Sample.update can take a dictionary-like via kargs or a list of keys
+    # and values via kwargs
+    def update(self, *kargs, **kwargs):
+        for k in kargs:
+            self.variables.update(k)
         self.variables.update(kwargs)
     def up(self, **kwargs):
         return self.update(**kwargs)
@@ -64,10 +85,15 @@ class Sample:
 
     
     def load(self,d):
-        self.name = d['name']
-        self.variables = {}
-        self.variables.update(d)
-        del(self.variables['name'])
+        if type(d) == type(self):   # load from another Sample
+            self.name = d['name']
+            self.variables = {}
+            self.merge(d)
+        else:   # load from a dictionary
+            self.name = d['name']
+            self.variables = {}
+            self.variables.update(d)
+            del(self.variables['name'])
         return self
     def save(self):
         d = self.variables.copy()
@@ -77,7 +103,21 @@ class Sample:
         for v in other.variables:
           self.variables[v] = other.variables[v]
         return self
+    def copy(self):
+        c = Sample(self.name)
+        c.merge(self)
+        return c
         
+class ExperimentIterator(collections.Iterator):
+    def __init__(self, e, rev=False):
+        if rev:
+            self.it = reversed(e.snapshots)
+        else:
+            self.it = iter(e.snapshots)
+
+    def __next__(self):
+        return Sample().load(next(self.it))
+
 class Experiment:
     class Mode(Enum):
         snapping = 1
@@ -98,7 +138,7 @@ class Experiment:
         if functions is not None:
             self.prikey_kargs = functions
         else:
-            self.prikey_kargs = [lambda x: self.snapshots[x] for x in variables]
+            self.prikey_kargs = [lambda x: x[v] for v in variables]
 
 
     # When documenting the experiment, we often have need to index based on the sample name 
@@ -111,13 +151,17 @@ class Experiment:
         if self.mode == Experiment.Mode.snapping:
             return [s for s in self.samples if s['name'] == key][0]
         else:
-            return Sample().load([s for s in self.snapshots if s['primary_key'] == key][0])
+            return [s for s in self.snapshots if s['primary_key'] == key][0]
 
     def __len__(self):
         return len(self.snapshots)
 
     def __iter__(self):
-        return iter(self.snapshots)
+        return ExperimentIterator(self)
+
+    def __reversed__(self):
+        return ExperimentIterator(self, rev=True)
+
 
     # operates on primary key
     def __contains__(self, a):
@@ -140,7 +184,7 @@ class Experiment:
         prikey = self.prikey_format.format(*format_args)
         extension = ord('a')
 
-        # at some point, we whould lift the 26-limit here and create aa, ab, ac... as needed
+        # at some point, we should lift the 26-limit here and create aa, ab, ac... as needed
         try:
             while any(x[output_key] == prikey if output_key in x else False for x in self.snapshots):
                 prikey = self.prikey_format.format(*format_args) + chr(extension)
@@ -193,8 +237,8 @@ class Experiment:
     def snap(self, **kwargs):
         self.update(**kwargs)
         for e in self.samples:
-            exp_copy = self.samples[e].save()
-            exp_copy.update({'sequence':self.sequence})
+            exp_copy = self.samples[e].copy()
+            exp_copy.update(sequence=self.sequence)
             self.snapshot_gen_prikey(exp_copy)
             self.snapshots.append(exp_copy)
         self.sequence += 1
@@ -238,7 +282,10 @@ class Experiment:
         samples = [s for s in self.snapshots if s['sequence'] == self.sequence - 1]
         for e in samples:
             e = e.copy()
-            del(e['sequence'])
+            try:
+                del(e['sequence'])
+            except:
+                pass
             ee = Sample()
             ee.load(e)
             self.include(ee)
@@ -287,9 +334,8 @@ class Experiment:
         return p.load(l)
 
     def map(self, function):
-        p = copy.copy(self)
-        return p.load(list(map(function,self.save())))
-
+        e = Experiment().load( map(function,self) )
+        return e
 
 # class Angle transforms angle data (and makes sure you don't do it twice), generally for use on a Experiment
 # object that keeps track of a bunch of Sample objects. Assume default key names to keep the calling
