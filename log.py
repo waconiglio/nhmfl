@@ -25,6 +25,14 @@ class Sample:
             raise KeyError('\'name\' is reserved in class Sample')
         self.variables[v] = value
 
+    def __delitem__(self,v):
+        if v == 'name':
+            raise KeyError('\'name\' is reserved in class Sample')
+        del(self.variables[v])
+
+    def __contains__(self, v):
+        return v in self.variables
+
     def __eq__(self, other):
         try:
             return (self.name == other.name and self.variables == other.variables)
@@ -60,7 +68,11 @@ class Sample:
     def __len__(self):
         return len(self.variables)
 
-    def update(self, **kwargs):
+    # just like dict.update(), Sample.update can take a dictionary-like via kargs or a list of keys
+    # and values via kwargs
+    def update(self, *kargs, **kwargs):
+        for k in kargs:
+            self.variables.update(k)
         self.variables.update(kwargs)
     def up(self, **kwargs):
         return self.update(**kwargs)
@@ -139,7 +151,7 @@ class Experiment:
         if self.mode == Experiment.Mode.snapping:
             return [s for s in self.samples if s['name'] == key][0]
         else:
-            return Sample().load([s for s in self.snapshots if s['primary_key'] == key][0])
+            return [s for s in self.snapshots if s['primary_key'] == key][0]
 
     def __len__(self):
         return len(self.snapshots)
@@ -172,7 +184,7 @@ class Experiment:
         prikey = self.prikey_format.format(*format_args)
         extension = ord('a')
 
-        # at some point, we whould lift the 26-limit here and create aa, ab, ac... as needed
+        # at some point, we should lift the 26-limit here and create aa, ab, ac... as needed
         try:
             while any(x[output_key] == prikey if output_key in x else False for x in self.snapshots):
                 prikey = self.prikey_format.format(*format_args) + chr(extension)
@@ -225,8 +237,8 @@ class Experiment:
     def snap(self, **kwargs):
         self.update(**kwargs)
         for e in self.samples:
-            exp_copy = self.samples[e].save()
-            exp_copy.update({'sequence':self.sequence})
+            exp_copy = self.samples[e].copy()
+            exp_copy.update(sequence=self.sequence)
             self.snapshot_gen_prikey(exp_copy)
             self.snapshots.append(exp_copy)
         self.sequence += 1
