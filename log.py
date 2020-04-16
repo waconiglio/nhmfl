@@ -31,7 +31,7 @@ class Sample:
         del(self.variables[v])
 
     def __contains__(self, v):
-        return v in self.variables
+        return v in self.variables or v == 'name'
 
     def __eq__(self, other):
         try:
@@ -138,7 +138,7 @@ class Experiment:
         if functions is not None:
             self.prikey_kargs = functions
         else:
-            self.prikey_kargs = [lambda x: self.snapshots[x] for x in variables]
+            self.prikey_kargs = [lambda x: x[v] for v in variables]
 
 
     # When documenting the experiment, we often have need to index based on the sample name 
