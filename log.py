@@ -2,6 +2,7 @@ import dateutil.parser as dt
 import copy
 import math
 from enum import Enum
+import collections
 
 
 # perhaps this would be better described as the sample's current state
@@ -30,6 +31,14 @@ class Sample:
         except:
             return hash(self) == hash(other)
 
+    def __str__(self):
+        v = self.variables.copy()
+        v['name'] = self.name
+        return str(v)
+    
+    def __repr__(self):
+        return str(self)
+
     # if we have a mapper function, return it
     def __getattr__(self, name):
         # avoid recursion by checking for this one explicitly
@@ -37,7 +46,7 @@ class Sample:
             return []
 
         if name not in self.variables:
-            raise AttributeError('{:} is not in the variable list.'.format(name))
+            raise AttributeError('{:} is not a method of Sample, nor is it in the variable list.'.format(name))
         if not callable(self.variables[name]):
             raise AttributeError('{:} is not callable, as required to be returned from Sample.'.format(name))
         def run_map():
@@ -64,10 +73,15 @@ class Sample:
 
     
     def load(self,d):
-        self.name = d['name']
-        self.variables = {}
-        self.variables.update(d)
-        del(self.variables['name'])
+        if type(d) == type(self):   # load from another Sample
+            self.name = d['name']
+            self.variables = {}
+            self.merge(d)
+        else:   # load from a dictionary
+            self.name = d['name']
+            self.variables = {}
+            self.variables.update(d)
+            del(self.variables['name'])
         return self
     def save(self):
         d = self.variables.copy()
@@ -77,7 +91,21 @@ class Sample:
         for v in other.variables:
           self.variables[v] = other.variables[v]
         return self
+    def copy(self):
+        c = Sample(self.name)
+        c.merge(self)
+        return c
         
+class ExperimentIterator(collections.Iterator):
+    def __init__(self, e, rev=False):
+        if rev:
+            self.it = reversed(e.snapshots)
+        else:
+            self.it = iter(e.snapshots)
+
+    def __next__(self):
+        return Sample().load(next(self.it))
+
 class Experiment:
     class Mode(Enum):
         snapping = 1
@@ -117,7 +145,11 @@ class Experiment:
         return len(self.snapshots)
 
     def __iter__(self):
-        return iter(self.snapshots)
+        return ExperimentIterator(self)
+
+    def __reversed__(self):
+        return ExperimentIterator(self, rev=True)
+
 
     # operates on primary key
     def __contains__(self, a):
@@ -238,7 +270,10 @@ class Experiment:
         samples = [s for s in self.snapshots if s['sequence'] == self.sequence - 1]
         for e in samples:
             e = e.copy()
-            del(e['sequence'])
+            try:
+                del(e['sequence'])
+            except:
+                pass
             ee = Sample()
             ee.load(e)
             self.include(ee)
@@ -287,9 +322,8 @@ class Experiment:
         return p.load(l)
 
     def map(self, function):
-        p = copy.copy(self)
-        return p.load(list(map(function,self.save())))
-
+        e = Experiment().load( map(function,self) )
+        return e
 
 # class Angle transforms angle data (and makes sure you don't do it twice), generally for use on a Experiment
 # object that keeps track of a bunch of Sample objects. Assume default key names to keep the calling
