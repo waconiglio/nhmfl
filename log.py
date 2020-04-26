@@ -244,8 +244,10 @@ class Experiment:
         self.sequence += 1
 
     # adjust something on the most recent snapshot temporarily withou updating the ongoing state of the samples
+    # the zip on the unused self.samples limits the number of iterations to exactly the number of samples, so 
+    # we go back and correct the most recent update for everybody, then stop.
     def amend(self, **kwargs):
-        for sample,snapshot in zip(reversed(self.samples),reversed(self.snapshots)):
+        for snapshot,sample in zip(reversed(self.snapshots),self.samples):
             snapshot.update(**kwargs)
 
     # call at end of experiment logging when you are ready to analyze data
