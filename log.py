@@ -1,8 +1,11 @@
 import dateutil.parser as dt
+import numpy as np
 import copy
 import math
 from enum import Enum
 import collections
+import h5py
+import json
 
 
 # perhaps this would be better described as the sample's current state
@@ -15,6 +18,10 @@ class Sample:
           del(self.variables['name'])
         except KeyError:
           pass
+
+    def items(self):
+      return self.variables.items()
+
     def __getitem__(self,v):
         if v == 'name':
             return self.name
@@ -104,9 +111,10 @@ class Sample:
           self.variables[v] = other.variables[v]
         return self
     def copy(self):
-        c = Sample(self.name)
-        c.merge(self)
-        return c
+        #c = Sample(self.name)
+        #c.merge(self)
+        #return c
+        return copy.deepcopy(self)
         
 class ExperimentIterator(collections.Iterator):
     def __init__(self, e, rev=False):
@@ -422,12 +430,62 @@ class ExperimentVariableMapper:
       else:
         raise
 
-#class DatasetCacheFile:
+
+def json_hash(thing):
+  # dump everything to json with keys sorted. hash that.
+  return str(hash(json.dumps(thing,sort_keys=True,default=str)))
+
+class DatasetCache:
     # opens and closes hdf5 file as needed
     # creates groups necessary to return the requested node
-        
-#class CachedDatasetGroup:
-    # caches a bunch of related datasets in an hdf5 group with a hash
-    #
-    # methods: get() tries to load the data from the cache
-    #          set() stores the hash and data, replacing everything in the group
+    def __init__(self, filename):
+      self.h5 = h5py.File(filename,'a')
+
+    # each named dataset gets a group. within that group, each
+    # parameter hash corresponds to a version of that data
+    def get(self, name, parameters, parent=None):
+      if parent is None:
+        parent = self.h5
+
+      parameter_hash = json_hash(parameters)
+
+      # this raises KeyError if name or parameters are not found
+      return np.array(parent[name][parameter_hash])
+
+    def set(self, name, parameters, data, parent=None):
+      if parent is None:
+        parent = self.h5
+
+      try:
+        named_group = parent[name]
+      except KeyError:
+        named_group = parent.create_group(name)
+
+      parameter_hash = json_hash(parameters)
+
+      # delete the old one if present
+      try:
+        del named_group[parameter_hash]
+      except:
+        pass
+
+      named_group.create_dataset(parameter_hash, data=data, chunks=True)
+
+    def delete(self, name, parameters=None, parent=None):
+      if parent is None:
+        parent = self.h5
+
+      if parameters is None:
+        # delete the whole group
+        try:
+          del parent[name]
+        except:
+          pass
+      else:
+        parameter_hash = json_hash(parameters)
+        try:
+          del parent[name][parameter_hash]
+        except:
+          pass
+
+
