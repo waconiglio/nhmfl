@@ -481,7 +481,12 @@ class DatasetCache:
       except:
         pass
 
-      ds = named_group.create_dataset(ns.dataset_name, data=data, chunks=True)
+      # first try to do it with chunks enabled. if fail, fallback
+      try:
+        ds = named_group.create_dataset(ns.dataset_name, data=data, chunks=True)
+      except TypeError:
+        ds = named_group.create_dataset(ns.dataset_name, data=data, chunks=False)
+
       ds.attrs['parameters'] = ns.parameter_json
       ds.attrs['ctime'] = ns.timestamp
       ds.attrs['ctime_text'] = ns.text_timestamp
@@ -572,21 +577,61 @@ class MakeCacheable(collections.UserDict):
     # can be as large as you like, as long as it contains keys or all required_params
     def __init__(self,cache_or_filename,**kwargs):
         self.data = {} # used by collections.UserDict
+        self.params = {}
         self.attach_cache(cache_or_filename)
-        missing_params = {k for k in self.required_params if k not in kwargs}
+        self.params.update(**kwargs)
+
+    def __deepcopy__(self, memo):
+      # deepcopy everything except self.cache
+      newone = type(self)(self.cache)
+      newone.data = copy.deepcopy(self.data, memo)
+      newone.params = copy.deepcopy(self.params, memo)
+      try:
+        newone.required_params = copy.deepcopy(self.required_params, memo)
+      except:
+        pass
+      try:
+        newone.required_output = copy.deepcopy(self.required_output, memo)
+      except:
+        pass
+      return newone
+    
+    # additional parameters may be passed to calculate.
+    def calculate(self,**kwargs):
+        self.params.update(**kwargs)
+
+        # two ways to specify required_params. it might be a constant string
+        # or it might be a callable that returns the string
+        if callable(self.required_params):
+          required_params = self.required_params()
+        else:
+          required_params = self.required_params
+
+        # check that we have all necesary parameters
+        missing_params = {k for k in required_params if k not in self.params}
         if len(missing_params):
             raise KeyError('Missing required parameters to {:}: {:}'.format(type(self),missing_params))
-        self.params = {k:kwargs[k] for k in self.required_params}
-        if self.name == '':
-            raise ValueError('self.name must be set in {:}'.format(type(self)))
-        
-        self.calculate_with_cache()
-        
-    def calculate_with_cache(self):
+
+        # two ways to specify name. it might be a constant string
+        # or it might be a callable that returns the string
+        if callable(self.name):
+          name = self.name()
+        else:
+          name = self.name
+        if name == '':
+            raise ValueError('name string or name() callable must be set in {:}'.format(type(self)))
+
+        # two ways to specify required_output. it might be a constant string
+        # or it might be a callable that returns the string
+        if callable(self.required_output):
+          required_output = self.required_output()
+        else:
+          required_output = self.required_output
+
         # first try to load it from cache
         try:
-            for col in self.required_output:
-                self[col] = self.get_cache(self.name + '/' + col, self.params)
+            for col in required_output:
+                self[col] = self.get_cache(name + '/' + col, self.params)
             return
         #except AttributeError as e:
         #    print('Warning: cache not enabled. Did you forget to attach_cache(cache)?',file=sys.stderr)
@@ -596,13 +641,16 @@ class MakeCacheable(collections.UserDict):
             pass
         
         # do the calculation and put the result in our superclass dictionary
+        # pass only parameters that match required_params list
         self.clear()
-        output = self.recalculate(self.params)
-        self.update(output)
+        output = self.recalculate({k:self.params[k] for k in required_params})
+
+        # keep only the things we are going to serialize to hdf5
+        self.update({k:output[k] for k in required_output})
         
         # write to cache
-        for col in self.required_output:
-            self.set_cache(self.name + '/' + col, self.params, self[col])
+        for col in required_output:
+            self.set_cache(name + '/' + col, self.params, self[col])
 
     def attach_cache(self, cache_or_filename):
         if isinstance(cache_or_filename, DatasetCache):
