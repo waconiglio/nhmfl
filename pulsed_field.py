@@ -45,7 +45,9 @@ def pulse_segment(time,field,t_in_segment):
     return time[start:stop],field[start:stop]
 
 # for simple up/down pulses on typical magnets, it is possible to simplify the segmentation process
-def split_pulse(time,field):
+# for very short or long pulse lengths, it may be necessary to adjust holdoff
+# e.g. 60 T long pulse or a sub-ms magnet
+def split_pulse(time,field,holdoff=0.001):
     # first discover if pulse is positive or negative
     if abs(max(field)) > abs(min(field)):
         # positive polarity pulse
@@ -56,8 +58,8 @@ def split_pulse(time,field):
         tmax = time[imax]
 
 
-    up = pulse_segment(time,field,tmax - 0.001)
-    down = pulse_segment(time,field,tmax + 0.001)
+    up = pulse_segment(time,field,tmax - holdoff)
+    down = pulse_segment(time,field,tmax + holdoff)
 
     # returns time_u,field_u,time_d,field_d
     return up[0],up[1],down[0],down[1]
