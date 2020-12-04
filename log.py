@@ -6,10 +6,13 @@ from enum import Enum
 import collections
 import h5py
 import json
+import time
+import datetime
+from argparse import Namespace  # used by DatasetCache
 
 
 # perhaps this would be better described as the sample's current state
-class Sample:
+class Sample(collections.abc.MutableMapping):
     # name is the name of the sample
     def __init__(self, name='', **kwargs):
         self.name = name
@@ -75,6 +78,9 @@ class Sample:
     def __len__(self):
         return len(self.variables)
 
+    def __iter__(self):
+        return iter(self.variables)
+
     # just like dict.update(), Sample.update can take a dictionary-like via kargs or a list of keys
     # and values via kwargs
     def update(self, *kargs, **kwargs):
@@ -115,7 +121,9 @@ class Sample:
         #c.merge(self)
         #return c
         return copy.deepcopy(self)
-        
+
+# might be able to simplify this by making an Experiment.__iter__() method that
+# just returns iter(self.snapshots)
 class ExperimentIterator(collections.Iterator):
     def __init__(self, e, rev=False):
         if rev:
@@ -126,7 +134,7 @@ class ExperimentIterator(collections.Iterator):
     def __next__(self):
         return next(self.it)
 
-class Experiment:
+class Experiment(collections.abc.Mapping):
     class Mode(Enum):
         snapping = 1
         analyzing = 2
@@ -431,61 +439,183 @@ class ExperimentVariableMapper:
         raise
 
 
-def json_hash(thing):
+def json_everything(thing):
   # dump everything to json with keys sorted. hash that.
-  return str(hash(json.dumps(thing,sort_keys=True,default=str)))
+  return json.dumps(thing,sort_keys=True,default=str)
 
 class DatasetCache:
     # opens and closes hdf5 file as needed
     # creates groups necessary to return the requested node
     def __init__(self, filename):
       self.h5 = h5py.File(filename,'a')
+      self.write_atime = True # set to False for read-only behavior
 
     # each named dataset gets a group. within that group, each
     # parameter hash corresponds to a version of that data
     def get(self, name, parameters, parent=None):
+      ns = self.names_and_metadata(name, parameters)
       if parent is None:
         parent = self.h5
 
-      parameter_hash = json_hash(parameters)
-
       # this raises KeyError if name or parameters are not found
-      return np.array(parent[name][parameter_hash])
+      ds = parent[ns.group][ns.dataset_name]
+      if(self.write_atime):
+        ds.attrs['atime'] = ns.timestamp
+        ds.attrs['atime_text'] = ns.text_timestamp
+
+      return np.array(ds)
 
     def set(self, name, parameters, data, parent=None):
+      ns = self.names_and_metadata(name, parameters)
       if parent is None:
         parent = self.h5
 
       try:
-        named_group = parent[name]
+        named_group = parent[ns.group]
       except KeyError:
-        named_group = parent.create_group(name)
-
-      parameter_hash = json_hash(parameters)
+        named_group = parent.create_group(ns.group)
 
       # delete the old one if present
       try:
-        del named_group[parameter_hash]
+        del named_group[ns.dataset_name]
       except:
         pass
 
-      named_group.create_dataset(parameter_hash, data=data, chunks=True)
+      ds = named_group.create_dataset(ns.dataset_name, data=data, chunks=True)
+      ds.attrs['parameters'] = ns.parameter_json
+      ds.attrs['ctime'] = ns.timestamp
+      ds.attrs['ctime_text'] = ns.text_timestamp
+      ds.attrs['atime'] = ns.timestamp
+      ds.attrs['atime_text'] = ns.text_timestamp
+      
 
     def delete(self, name, parameters=None, parent=None):
+      ns = self.names_and_metadata(name, parameters)
+
       if parent is None:
         parent = self.h5
 
       if parameters is None:
         # delete the whole group
         try:
-          del parent[name]
+          del parent[ns.group]
         except:
           pass
       else:
-        parameter_hash = json_hash(parameters)
         try:
-          del parent[name][parameter_hash]
+          del parent[ns.group][ns.dataset_name]
         except:
           pass
+
+    def clear_older(self, seconds, parent=None):
+      if parent is None:
+        parent = self.h5
+
+      # prevent unintentional mass-delete
+      seconds = abs(seconds)
+      timestamp = int(time.time())
+      print('timestamp now is: {:}'.format(timestamp))
+      delset = set()
+
+      # define our callback function
+      def clear_older_callback(name, obj):
+        if isinstance(obj, h5py.Dataset):
+          try:
+            if timestamp - obj.attrs['atime'] > seconds:
+              # schedule name for deletion. deleting object here does nothing because there are multiple reference(?)
+              delset.add(name)
+          except KeyError:
+            pass
+      parent.visititems(clear_older_callback)
+      # delete the list of datasets
+      for n in delset:
+        del parent[n]
+
+    def close(self):
+      self.h5.close()
+    def __enter__(self):
+      return self
+    def __exit__(self, exc_type, exc_value, traceback):
+      self.close()
+    def __del__(self):
+      self.close()
+
+    def names_and_metadata(self, name, parameters):
+      ns = Namespace()
+      ns.group = name
+      ns.parameter_json = json_everything(parameters)
+      ns.parameter_hash = str(hash(ns.parameter_json))
+      ns.dataset_name = name.split('/')[-1] + '_' + ns.parameter_hash
+      ns.timestamp = int(time.time())
+      ns.text_timestamp = datetime.datetime.fromtimestamp(ns.timestamp).strftime('%Y-%m-%d %H:%M:%S')
+      return ns
+
+
+class MakeCacheable(collections.UserDict):
+    ########################
+    # these must be overridden at the class or instance level when subclassing:
+    
+    # list the keys that will be used to make the parameter list when sublassing
+    required_params = []
+    # list the keys that will be generated on output when subclassing
+    required_output = []
+    # dataset group name for identifying it in the hdf5 file
+    name = ''
+    # override to do calculation:
+    def recalculate(self,params):
+        raise NotImplementedError('Please override MakeCacheable.recalculate() in {:}'.format(type(self)))
+    ########################
+
+    # base class implementation follows
+    #
+    # accepts DatasetCache object and dictionary to make things easy on the calling code. dictionary
+    # can be as large as you like, as long as it contains keys or all required_params
+    def __init__(self,cache_or_filename,**kwargs):
+        self.data = {} # used by collections.UserDict
+        self.attach_cache(cache_or_filename)
+        missing_params = {k for k in self.required_params if k not in kwargs}
+        if len(missing_params):
+            raise KeyError('Missing required parameters to {:}: {:}'.format(type(self),missing_params))
+        self.params = {k:kwargs[k] for k in self.required_params}
+        if self.name == '':
+            raise ValueError('self.name must be set in {:}'.format(type(self)))
+        
+        self.calculate_with_cache()
+        
+    def calculate_with_cache(self):
+        # first try to load it from cache
+        try:
+            for col in self.required_output:
+                self[col] = self.get_cache(self.name + '/' + col, self.params)
+            return
+        #except AttributeError as e:
+        #    print('Warning: cache not enabled. Did you forget to attach_cache(cache)?',file=sys.stderr)
+        
+        # no good. load from original file
+        except KeyError:
+            pass
+        
+        # do the calculation and put the result in our superclass dictionary
+        self.clear()
+        output = self.recalculate(self.params)
+        self.update(output)
+        
+        # write to cache
+        for col in self.required_output:
+            self.set_cache(self.name + '/' + col, self.params, self[col])
+
+    def attach_cache(self, cache_or_filename):
+        if isinstance(cache_or_filename, DatasetCache):
+            self.cache = cache_or_filename
+        else:
+            self.cache = DatasetCache(cache_or_filename)
+    def get_cache(self, name, parameters, parent=None):
+        return self.cache.get(name, parameters, parent)
+        
+    def set_cache(self, name, parameters, data, parent=None):
+        return self.cache.set(name,parameters,data,parent)
+        
+    def delete_from_cache(self, name, parameters=None, parent=None):
+        return self.cache.delete(name, parameters, parent)
 
 
