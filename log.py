@@ -474,6 +474,7 @@ class DatasetCache:
         named_group = parent[ns.group]
       except KeyError:
         named_group = parent.create_group(ns.group)
+        named_group.attrs['DatasetCache'] = str(type(self))
 
       # delete the old one if present
       try:
