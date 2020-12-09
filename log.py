@@ -149,12 +149,14 @@ class Experiment(collections.abc.Mapping):
         else:
             self.mode = Experiment.Mode.analyzing
 
-    def primary_key(self, prikey_format='[{:}_{:03d}]', variables=['name','n'], functions=None):
+    def primary_key(self, prikey_format='{:}_{:03d}', variables=['name','n'], functions=None):
         self.prikey_format = prikey_format
         if functions is not None:
             self.prikey_kargs = functions
         else:
-            self.prikey_kargs = [lambda x: x[v] for v in variables]
+            # see the "late binding closures" problem in python
+            # v=v makes use of the early binding of default arguments to put the correct v in each lambda
+            self.prikey_kargs = [lambda x,v=v: x[v] for v in variables]
 
 
     # When documenting the experiment, we often have need to index based on the sample name 
@@ -520,7 +522,6 @@ class DatasetCache:
       # prevent unintentional mass-delete
       seconds = abs(seconds)
       timestamp = int(time.time())
-      print('timestamp now is: {:}'.format(timestamp))
       delset = set()
 
       # define our callback function
@@ -556,6 +557,25 @@ class DatasetCache:
       ns.text_timestamp = datetime.datetime.fromtimestamp(ns.timestamp).strftime('%Y-%m-%d %H:%M:%S')
       return ns
 
+class DummyDatasetCache(DatasetCache):
+    def __init__(self,*kargs,**kwargs):
+      pass
+    def get(self,*kargs,**kwargs):
+      raise KeyError('DummyDatasetCache has no data')
+    def set(self,*kargs,**kwargs):
+      pass
+    def delete(self,*kargs,**kwargs):
+      pass
+    def clear_older(self,*kargs,**kwargs):
+      pass
+    def close(self):
+      pass
+    def __enter__(self):
+      return self
+    def __exit__(self, exc_type, exc_value, traceback):
+      pass
+    def __del__(self):
+      pass
 
 class MakeCacheable(collections.UserDict):
     ########################
@@ -587,14 +607,12 @@ class MakeCacheable(collections.UserDict):
       newone = type(self)(self.cache)
       newone.data = copy.deepcopy(self.data, memo)
       newone.params = copy.deepcopy(self.params, memo)
-      try:
+      if not callable(self.required_params):
         newone.required_params = copy.deepcopy(self.required_params, memo)
-      except:
-        pass
-      try:
+      if not callable(self.required_output):
         newone.required_output = copy.deepcopy(self.required_output, memo)
-      except:
-        pass
+      if not callable(self.name):
+        newone.name = copy.deepcopy(self.name, memo)
       return newone
     
     # additional parameters may be passed to calculate.
