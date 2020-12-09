@@ -2,9 +2,6 @@ import numpy as np
 import scipy
 import scipy.interpolate
 
-from . import useful
-import importlib
-importlib.reload(useful)
 from .useful import *
 
 # Strategy for interpolation with optimal noise reduction when output has an equally spaced domain:

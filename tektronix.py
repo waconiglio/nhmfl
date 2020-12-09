@@ -19,31 +19,31 @@ def parse_curve(isf_file):
         # read header
         header = {}
         while True:
-            name = _read_chunk(ifile, " ")
-            if name != ":CURVE":
-                value = _read_chunk(ifile, ";")
+            name = _read_chunk(ifile, b' ')
+            if name != b':CURVE':
+                value = _read_chunk(ifile, b';')
 
                 assert name not in header
-                header[name] = value
+                header[name.decode('ascii')] = value.decode('ascii')
             else:
                 # ":CURVE " is the last tag of the header, followed by
                 # '#XYYY' with X being the number of bytes of YYY.
                 # YYY is the length of the datastream following in bytes.
-                value = ifile.read(2)
-                y_str = ifile.read(int(value[-1]))
+                value = ifile.read(2).decode('ascii')
+                y_str = ifile.read(int(value[-1])).decode('ascii')
                 value += y_str
 
                 # the number of bytes might be present with or without the
                 # preceding header ":WFMPRE:"
-                nobytes = header.get("BYT_NR",
-                                     header.get(":WFMPRE:BYT_NR", "0")
+                nobytes = header.get('BYT_NR',
+                                     header.get(':WFMPRE:BYT_NR', '0')
                                      )
-                assert int(y_str) == int(header["NR_PT"]) * int(nobytes)
+                assert int(y_str) == int(header['NR_PT']) * int(nobytes)
                 header[name] = value
                 currentposition = ifile.tell()
                 break
 
-        assert header["ENCDG"] == "BINARY"
+        assert header['ENCDG'] == 'BINARY'
 
         # read data as numpy array
         header["data"] = _read_data(ifile, currentposition, header)
@@ -62,7 +62,7 @@ def _read_chunk(headerfile, delimiter):
         c = headerfile.read(1)
         if c != delimiter:
             chunk.append(c)
-            if c == '"':
+            if c == b'"':
                 # switch delimiter to make sure to parse the whole string
                 # enclosed in '"'.
                 delimiter, prior_delimiter = c, delimiter
@@ -71,7 +71,7 @@ def _read_chunk(headerfile, delimiter):
             chunk.append(c)
             delimiter, prior_delimiter = prior_delimiter, None
         else:
-            return "".join(chunk)
+            return b''.join(chunk)
 
 
 def _read_data(bfile, position, header):
@@ -81,14 +81,14 @@ def _read_data(bfile, position, header):
     is read.
     """
     # determine the datatype from header tags
-    datatype = ">" if header["BYT_OR"] == "MSB" else "<"
-    if header["BN_FMT"] == "RI":
+    datatype = ">" if header["BYT_OR"] == 'MSB' else "<"
+    if header["BN_FMT"] == 'RI':
         datatype += "i"
     else:
         datatype += "u"
     # BYT_NR might be present with preceding header ":WFMPRE:BYT_NR"
-    nobytes = header.get("BYT_NR",
-                         header.get(":WFMPRE:BYT_NR", "")
+    nobytes = header.get('BYT_NR',
+                         header.get(':WFMPRE:BYT_NR', "")
                          )
     datatype += nobytes
     assert len(datatype) >= 3

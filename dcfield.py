@@ -157,6 +157,11 @@ class NHMFL_DC_Data:
     def __getitem__(self, x):
       return self.df[x].values
     
+    def __contains__(self, item):
+        return item in self.df
+    
+    # should probably also define __iter__(self) and __len__(self)
+    
     def clean_field(self,smoothing_time=5.0,remove_stairsteps=True,ensure_monotonic=False):
       time = self.df['Timestamp'].values
       field = self.df['Field'].values
@@ -176,14 +181,17 @@ class NHMFL_DC_Data:
 
       # Cleaning can result in loss of points at the start or end of dataset. Truncate
       # the dataframe to remove these points.
-      tmin = min(time[1:-2])
-      tmax = max(time[1:-2])
+      tmin = min(time[1:-1])
+      tmax = max(time[1:-1])
       imin,imax = interpolation.bracket_interval(self.df['Timestamp'].values,tmin,tmax)
-      self.df = self.df.truncate(before=imin,after=imax)
-
-      self.df['Field'] = scipy.interpolate.splev(self.df['Timestamp'].values,cs)
-
-
+      
+      # pandas uses a nonstandard slice definition. the final value is included.
+      self.df.reset_index(drop=True,inplace=True)
+      self.df.truncate(imin,imax,copy=False)
+      self.df.reset_index(drop=True,inplace=True)
+        
+      # avoid pandas rude SettingWithCopyWarning
+      self.df.loc[:,'Field'] = scipy.interpolate.splev(self.df['Timestamp'].values,cs)
 
 
 # current and temperature are arrays.

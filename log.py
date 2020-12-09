@@ -1,10 +1,18 @@
 import dateutil.parser as dt
+import numpy as np
 import copy
 import math
+from enum import Enum
+import collections
+import h5py
+import json
+import time
+import datetime
+from argparse import Namespace  # used by DatasetCache
 
 
 # perhaps this would be better described as the sample's current state
-class Sample:
+class Sample(collections.abc.MutableMapping):
     # name is the name of the sample
     def __init__(self, name='', **kwargs):
         self.name = name
@@ -13,9 +21,71 @@ class Sample:
           del(self.variables['name'])
         except KeyError:
           pass
+
+    def items(self):
+      return self.variables.items()
+
     def __getitem__(self,v):
+        if v == 'name':
+            return self.name
         return self.variables[v]
-    def update(self, **kwargs):
+
+    def __setitem__(self,v,value):
+        if v == 'name':
+            raise KeyError('\'name\' is reserved in class Sample')
+        self.variables[v] = value
+
+    def __delitem__(self,v):
+        if v == 'name':
+            raise KeyError('\'name\' is reserved in class Sample')
+        del(self.variables[v])
+
+    def __contains__(self, v):
+        return v in self.variables or v == 'name'
+
+    def __eq__(self, other):
+        try:
+            return (self.name == other.name and self.variables == other.variables)
+        except:
+            return hash(self) == hash(other)
+
+    def __str__(self):
+        v = self.variables.copy()
+        v['name'] = self.name
+        return str(v)
+    
+    def __repr__(self):
+        return str(self)
+
+    # if we have a mapper function, return it
+    def __getattr__(self, name):
+        # avoid recursion by checking for this one explicitly
+        if name == 'variables':
+            return []
+
+        if name not in self.variables:
+            raise AttributeError('{:} is not a method of Sample, nor is it in the variable list.'.format(name))
+        if not callable(self.variables[name]):
+            raise AttributeError('{:} is not callable, as required to be returned from Sample.'.format(name))
+        def run_map():
+            self.merge(self.variables[name](self))
+            return self
+        return run_map
+
+    def __hash__(self):
+        return hash(self.name + repr(self.variables))
+
+    def __len__(self):
+        return len(self.variables)
+
+    def __iter__(self):
+        return iter(self.variables)
+
+    # just like dict.update(), Sample.update can take a dictionary-like via kargs or a list of keys
+    # and values via kwargs
+    def update(self, *kargs, **kwargs):
+        for k in kargs:
+            self.variables.update(k)
         self.variables.update(kwargs)
     def up(self, **kwargs):
         return self.update(**kwargs)
@@ -28,10 +98,16 @@ class Sample:
 
     
     def load(self,d):
-        self.name = d['name']
-        self.variables = {}
-        self.variables.update(d)
-        del(self.variables['name'])
+        if type(d) == type(self):   # load from another Sample
+            self.name = d['name']
+            self.variables = {}
+            self.merge(d)
+        else:   # load from a dictionary
+            self.name = d['name']
+            self.variables = {}
+            self.variables.update(d)
+            del(self.variables['name'])
+        return self
     def save(self):
         d = self.variables.copy()
         d.update({'name':self.name})
@@ -40,16 +116,103 @@ class Sample:
         for v in other.variables:
           self.variables[v] = other.variables[v]
         return self
-            
-        
-class Experiment:
+    def copy(self):
+        #c = Sample(self.name)
+        #c.merge(self)
+        #return c
+        return copy.deepcopy(self)
+
+# might be able to simplify this by making an Experiment.__iter__() method that
+# just returns iter(self.snapshots)
+class ExperimentIterator(collections.Iterator):
+    def __init__(self, e, rev=False):
+        if rev:
+            self.it = reversed(e.snapshots)
+        else:
+            self.it = iter(e.snapshots)
+
+    def __next__(self):
+        return next(self.it)
+
+class Experiment(collections.abc.Mapping):
+    class Mode(Enum):
+        snapping = 1
+        analyzing = 2
+
+
     def __init__(self, snapshots=[]):
         self.default_exp = Sample()
         self.load(snapshots)
-        
-    # p['var_name']
-    def __getitem__(self,sample_name):
-        return self.samples[sample_name]
+        self.primary_key('{:d}', ['sequence'])
+        if len(snapshots) == 0:
+            self.mode = Experiment.Mode.snapping
+        else:
+            self.mode = Experiment.Mode.analyzing
+
+    def primary_key(self, prikey_format='{:}_{:03d}', variables=['name','n'], functions=None):
+        self.prikey_format = prikey_format
+        if functions is not None:
+            self.prikey_kargs = functions
+        else:
+            # see the "late binding closures" problem in python
+            # v=v makes use of the early binding of default arguments to put the correct v in each lambda
+            self.prikey_kargs = [lambda x,v=v: x[v] for v in variables]
+
+
+    # When documenting the experiment, we often have need to index based on the sample name 
+    # to set unique variables or such. When analyzing data, we need access to the snapshot rows.
+    # 
+    # Overload __getitem__ to work in either mode, depending on what we are doing at the time.
+    # Set the mode enum, or let it get set to Mode.snapping automatically at creation, then change
+    # to Mode.analyzing when we call end()
+    def __getitem__(self,key):
+        if self.mode == Experiment.Mode.snapping:
+            return [s for s in self.samples if s['name'] == key][0]
+        else:
+            return [s for s in self.snapshots if s['primary_key'] == key][0]
+
+    def __len__(self):
+        return len(self.snapshots)
+
+    def __iter__(self):
+        return ExperimentIterator(self)
+
+    def __reversed__(self):
+        return ExperimentIterator(self, rev=True)
+
+
+    # operates on primary key
+    def __contains__(self, a):
+        return any([x['primary_key'] == a for x in self.snapshots])
+
+    # i can't think of a time to use this, but here it is. maybe if we import some lists that
+    # are missing private keys, we need to run it to get indexing capability.
+    def gen_prikey(self, overwrite=False):
+        for s in self.snapshots:
+            if 'primary_key' not in s or overwrite:
+                self.snapshot_gen_prikey(s)
+
+    # generate private key for snapshot s
+    # format follows string.format().
+    # further arguments refer to {:} portions of the format specifier, where the functions take the 
+    #   sample data as input.
+    def snapshot_gen_prikey(self, s):
+        output_key = 'primary_key'
+        format_args = [k(s) for k in self.prikey_kargs]
+        prikey = self.prikey_format.format(*format_args)
+        extension = ord('a')
+
+        # at some point, we should lift the 26-limit here and create aa, ab, ac... as needed
+        try:
+            while any(x[output_key] == prikey if output_key in x else False for x in self.snapshots):
+                prikey = self.prikey_format.format(*format_args) + chr(extension)
+                extension += 1
+                if extension > ord('z'):
+                    raise KeyError
+        except StopIteration:
+            pass
+        s[output_key] = prikey
+
     
     # perhaps these should be named include and exclude, so as to differentiate between add and remove for variables.
     def include(self,*samples):
@@ -92,10 +255,23 @@ class Experiment:
     def snap(self, **kwargs):
         self.update(**kwargs)
         for e in self.samples:
-            exp_copy = self.samples[e].save()
-            exp_copy.update({'sequence':self.sequence})
+            exp_copy = self.samples[e].copy()
+            exp_copy.update(sequence=self.sequence)
+            self.snapshot_gen_prikey(exp_copy)
             self.snapshots.append(exp_copy)
         self.sequence += 1
+
+    # adjust something on the most recent snapshot temporarily withou updating the ongoing state of the samples
+    # the zip on the unused self.samples limits the number of iterations to exactly the number of samples, so 
+    # we go back and correct the most recent update for everybody, then stop.
+    def amend(self, **kwargs):
+        for snapshot,sample in zip(reversed(self.snapshots),self.samples):
+            snapshot.update(**kwargs)
+
+    # call at end of experiment logging when you are ready to analyze data
+    def end(self):
+        self.mode = Experiment.Mode.analyzing
+
         
     # remove a variable from child samples
     def remove(self, *var_list):
@@ -126,7 +302,10 @@ class Experiment:
         samples = [s for s in self.snapshots if s['sequence'] == self.sequence - 1]
         for e in samples:
             e = e.copy()
-            del(e['sequence'])
+            try:
+                del(e['sequence'])
+            except:
+                pass
             ee = Sample()
             ee.load(e)
             self.include(ee)
@@ -175,9 +354,8 @@ class Experiment:
         return p.load(l)
 
     def map(self, function):
-        p = copy.copy(self)
-        return p.load(list(map(function,self.save())))
-
+        e = Experiment().load( map(function,self) )
+        return e
 
 # class Angle transforms angle data (and makes sure you don't do it twice), generally for use on a Experiment
 # object that keeps track of a bunch of Sample objects. Assume default key names to keep the calling
@@ -262,12 +440,249 @@ class ExperimentVariableMapper:
       else:
         raise
 
-#class DatasetCacheFile:
+
+def json_everything(thing):
+  # dump everything to json with keys sorted. hash that.
+  return json.dumps(thing,sort_keys=True,default=str)
+
+class DatasetCache:
     # opens and closes hdf5 file as needed
     # creates groups necessary to return the requested node
-        
-#class CachedDatasetGroup:
-    # caches a bunch of related datasets in an hdf5 group with a hash
+    def __init__(self, filename):
+      self.h5 = h5py.File(filename,'a')
+      self.write_atime = True # set to False for read-only behavior
+
+    # each named dataset gets a group. within that group, each
+    # parameter hash corresponds to a version of that data
+    def get(self, name, parameters, parent=None):
+      ns = self.names_and_metadata(name, parameters)
+      if parent is None:
+        parent = self.h5
+
+      # this raises KeyError if name or parameters are not found
+      ds = parent[ns.group][ns.dataset_name]
+      if(self.write_atime):
+        ds.attrs['atime'] = ns.timestamp
+        ds.attrs['atime_text'] = ns.text_timestamp
+
+      return np.array(ds)
+
+    def set(self, name, parameters, data, parent=None):
+      ns = self.names_and_metadata(name, parameters)
+      if parent is None:
+        parent = self.h5
+
+      try:
+        named_group = parent[ns.group]
+      except KeyError:
+        named_group = parent.create_group(ns.group)
+        named_group.attrs['DatasetCache'] = str(type(self))
+
+      # delete the old one if present
+      try:
+        del named_group[ns.dataset_name]
+      except:
+        pass
+
+      # first try to do it with chunks enabled. if fail, fallback
+      try:
+        ds = named_group.create_dataset(ns.dataset_name, data=data, chunks=True)
+      except TypeError:
+        ds = named_group.create_dataset(ns.dataset_name, data=data, chunks=False)
+
+      ds.attrs['parameters'] = ns.parameter_json
+      ds.attrs['ctime'] = ns.timestamp
+      ds.attrs['ctime_text'] = ns.text_timestamp
+      ds.attrs['atime'] = ns.timestamp
+      ds.attrs['atime_text'] = ns.text_timestamp
+      
+
+    def delete(self, name, parameters=None, parent=None):
+      ns = self.names_and_metadata(name, parameters)
+
+      if parent is None:
+        parent = self.h5
+
+      if parameters is None:
+        # delete the whole group
+        try:
+          del parent[ns.group]
+        except:
+          pass
+      else:
+        try:
+          del parent[ns.group][ns.dataset_name]
+        except:
+          pass
+
+    def clear_older(self, seconds, parent=None):
+      if parent is None:
+        parent = self.h5
+
+      # prevent unintentional mass-delete
+      seconds = abs(seconds)
+      timestamp = int(time.time())
+      delset = set()
+
+      # define our callback function
+      def clear_older_callback(name, obj):
+        if isinstance(obj, h5py.Dataset):
+          try:
+            if timestamp - obj.attrs['atime'] > seconds:
+              # schedule name for deletion. deleting object here does nothing because there are multiple reference(?)
+              delset.add(name)
+          except KeyError:
+            pass
+      parent.visititems(clear_older_callback)
+      # delete the list of datasets
+      for n in delset:
+        del parent[n]
+
+    def close(self):
+      self.h5.close()
+    def __enter__(self):
+      return self
+    def __exit__(self, exc_type, exc_value, traceback):
+      self.close()
+    def __del__(self):
+      self.close()
+
+    def names_and_metadata(self, name, parameters):
+      ns = Namespace()
+      ns.group = name
+      ns.parameter_json = json_everything(parameters)
+      ns.parameter_hash = str(hash(ns.parameter_json))
+      ns.dataset_name = name.split('/')[-1] + '_' + ns.parameter_hash
+      ns.timestamp = int(time.time())
+      ns.text_timestamp = datetime.datetime.fromtimestamp(ns.timestamp).strftime('%Y-%m-%d %H:%M:%S')
+      return ns
+
+class DummyDatasetCache(DatasetCache):
+    def __init__(self,*kargs,**kwargs):
+      pass
+    def get(self,*kargs,**kwargs):
+      raise KeyError('DummyDatasetCache has no data')
+    def set(self,*kargs,**kwargs):
+      pass
+    def delete(self,*kargs,**kwargs):
+      pass
+    def clear_older(self,*kargs,**kwargs):
+      pass
+    def close(self):
+      pass
+    def __enter__(self):
+      return self
+    def __exit__(self, exc_type, exc_value, traceback):
+      pass
+    def __del__(self):
+      pass
+
+class MakeCacheable(collections.UserDict):
+    ########################
+    # these must be overridden at the class or instance level when subclassing:
+    
+    # list the keys that will be used to make the parameter list when sublassing
+    required_params = []
+    # list the keys that will be generated on output when subclassing
+    required_output = []
+    # dataset group name for identifying it in the hdf5 file
+    name = ''
+    # override to do calculation:
+    def recalculate(self,params):
+        raise NotImplementedError('Please override MakeCacheable.recalculate() in {:}'.format(type(self)))
+    ########################
+
+    # base class implementation follows
     #
-    # methods: get() tries to load the data from the cache
-    #          set() stores the hash and data, replacing everything in the group
+    # accepts DatasetCache object and dictionary to make things easy on the calling code. dictionary
+    # can be as large as you like, as long as it contains keys or all required_params
+    def __init__(self,cache_or_filename,**kwargs):
+        self.data = {} # used by collections.UserDict
+        self.params = {}
+        self.attach_cache(cache_or_filename)
+        self.params.update(**kwargs)
+
+    def __deepcopy__(self, memo):
+      # deepcopy everything except self.cache
+      newone = type(self)(self.cache)
+      newone.data = copy.deepcopy(self.data, memo)
+      newone.params = copy.deepcopy(self.params, memo)
+      if not callable(self.required_params):
+        newone.required_params = copy.deepcopy(self.required_params, memo)
+      if not callable(self.required_output):
+        newone.required_output = copy.deepcopy(self.required_output, memo)
+      if not callable(self.name):
+        newone.name = copy.deepcopy(self.name, memo)
+      return newone
+    
+    # additional parameters may be passed to calculate.
+    def calculate(self,**kwargs):
+        self.params.update(**kwargs)
+
+        # two ways to specify required_params. it might be a constant string
+        # or it might be a callable that returns the string
+        if callable(self.required_params):
+          required_params = self.required_params()
+        else:
+          required_params = self.required_params
+
+        # check that we have all necesary parameters
+        missing_params = {k for k in required_params if k not in self.params}
+        if len(missing_params):
+            raise KeyError('Missing required parameters to {:}: {:}'.format(type(self),missing_params))
+
+        # two ways to specify name. it might be a constant string
+        # or it might be a callable that returns the string
+        if callable(self.name):
+          name = self.name()
+        else:
+          name = self.name
+        if name == '':
+            raise ValueError('name string or name() callable must be set in {:}'.format(type(self)))
+
+        # two ways to specify required_output. it might be a constant string
+        # or it might be a callable that returns the string
+        if callable(self.required_output):
+          required_output = self.required_output()
+        else:
+          required_output = self.required_output
+
+        # first try to load it from cache
+        try:
+            for col in required_output:
+                self[col] = self.get_cache(name + '/' + col, self.params)
+            return
+        #except AttributeError as e:
+        #    print('Warning: cache not enabled. Did you forget to attach_cache(cache)?',file=sys.stderr)
+        
+        # no good. load from original file
+        except KeyError:
+            pass
+        
+        # do the calculation and put the result in our superclass dictionary
+        # pass only parameters that match required_params list
+        self.clear()
+        output = self.recalculate({k:self.params[k] for k in required_params})
+
+        # keep only the things we are going to serialize to hdf5
+        self.update({k:output[k] for k in required_output})
+        
+        # write to cache
+        for col in required_output:
+            self.set_cache(name + '/' + col, self.params, self[col])
+
+    def attach_cache(self, cache_or_filename):
+        if isinstance(cache_or_filename, DatasetCache):
+            self.cache = cache_or_filename
+        else:
+            self.cache = DatasetCache(cache_or_filename)
+    def get_cache(self, name, parameters, parent=None):
+        return self.cache.get(name, parameters, parent)
+        
+    def set_cache(self, name, parameters, data, parent=None):
+        return self.cache.set(name,parameters,data,parent)
+        
+    def delete_from_cache(self, name, parameters=None, parent=None):
+        return self.cache.delete(name, parameters, parent)
+
+
